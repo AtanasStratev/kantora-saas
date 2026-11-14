@@ -14,11 +14,18 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts",
+    "db:setup": "node scripts/db-setup.mjs",
+    "db:migrate": "dbmate --no-dump-schema up",
+    "db:rollback": "dbmate --no-dump-schema rollback",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "dbmate": "^2.38.1",
     "eslint": "^10.15.0",
+    "pg": "^8.23.1",
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2",

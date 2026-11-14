@@ -7,6 +7,14 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strict,
   {
+    files: ['**/*.test.ts'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
+  },
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
+  {
     files: ['packages/domain/**/*.ts'],
     rules: {
       // Пари само с Decimal: забраняваме parseFloat/Number() и Math.round в бизнес логиката.
