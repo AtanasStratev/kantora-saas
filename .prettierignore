@@ -1,0 +1,6 @@
+docs/
+PROMPT.md
+CLAUDE.md
+pnpm-lock.yaml
+node_modules/
+coverage/
