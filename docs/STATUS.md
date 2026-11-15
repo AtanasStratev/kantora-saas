@@ -14,8 +14,12 @@
 
 - Миграции (dbmate): роля `app_user`, контекст на наемателя, основни таблици с FORCE RLS,
   одитен журнал (append-only, хеш-верига). `withTenant` в `packages/db`.
-- Тестове за изолация (`packages/db/src/isolation.int.test.ts`): **написани, НЕ са пускани.**
-  Docker Desktop не може да стартира: виртуализацията е изключена в BIOS и WSL липсва.
+- Тестове за изолация (`packages/db/src/isolation.int.test.ts`): **18/18 минават** срещу
+  PostgreSQL 17 в Docker (2026-11-15). Проверено, че хващат пробив: умишлено отворена
+  политика на `app.company` проваля 4 теста.
+- Миграция `20261115120000`: одитният журнал ползва вградената `sha256()` вместо
+  `digest()` от pgcrypto (не се виждаше от защитения search_path). up → down → up проверено.
+- GitHub: https://github.com/AtanasStratev/kantora-saas (частно), `main` е качен.
 - Отклонение: първичните ключове са UUID v4 (`gen_random_uuid`), не v7 — PostgreSQL 17
   няма вграден uuidv7. Ще се добави функция, ако стане нужно за производителността.
 
