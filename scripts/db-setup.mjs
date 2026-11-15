@@ -23,6 +23,8 @@ try {
       END IF;
     END
     $$;`);
+  // Re-grant every time: rolling back the first migration drops app_user and its memberships.
+  await client.query('GRANT app_user TO kantora_app');
   console.log('Application role kantora_app is ready.');
 } finally {
   await client.end();

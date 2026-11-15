@@ -255,10 +255,8 @@ GRANT SELECT ON app.legal_parameter TO app_user;
 
 -- migrate:down
 
-DROP FUNCTION app.create_company(text, text);
-DROP FUNCTION app.shares_current_office(uuid);
-DROP FUNCTION app.has_company_access(uuid, uuid);
-DROP FUNCTION app.current_office_role();
+-- Tables first: their RLS policies depend on the helper functions below.
+-- (Order corrected 2026-11-15 before any deployment, owner-approved; see ADR-0003.)
 DROP TABLE app.legal_parameter;
 DROP TABLE app.period;
 DROP TABLE app.fiscal_year;
@@ -267,6 +265,10 @@ DROP TABLE app.company;
 DROP TABLE app.office_membership;
 DROP TABLE app.users;
 DROP TABLE app.office;
+DROP FUNCTION app.create_company(text, text);
+DROP FUNCTION app.shares_current_office(uuid);
+DROP FUNCTION app.has_company_access(uuid, uuid);
+DROP FUNCTION app.current_office_role();
 DROP TYPE app.ledger_currency;
 DROP TYPE app.reporting_framework;
 DROP TYPE app.office_role;
