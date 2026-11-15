@@ -12,6 +12,13 @@
 - `docker-compose.yml` (PostgreSQL 17, MinIO, Mailpit) — **още не е пускан**: Docker Desktop
   не работи.
 
+- Миграции (dbmate): роля `app_user`, контекст на наемателя, основни таблици с FORCE RLS,
+  одитен журнал (append-only, хеш-верига). `withTenant` в `packages/db`.
+- Тестове за изолация (`packages/db/src/isolation.int.test.ts`): **написани, НЕ са пускани.**
+  Docker Desktop не може да стартира: виртуализацията е изключена в BIOS и WSL липсва.
+- Отклонение: първичните ключове са UUID v4 (`gen_random_uuid`), не v7 — PostgreSQL 17
+  няма вграден uuidv7. Ще се добави функция, ако стане нужно за производителността.
+
 ### Фаза 1: следва
 Пускане на Docker → миграции (dbmate), роли и RLS → тестове за изолация → вход и 2FA →
 Next.js обвивка и дизайн система → CI.
