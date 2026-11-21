@@ -128,3 +128,45 @@ describe('user preferences', () => {
     ).rejects.toThrow(/row-level security|duplicate key/);
   });
 });
+
+describe('company creation', () => {
+  it('creates the current fiscal year with 12 periods in the right ledger currency', async () => {
+    const userId = await createAuthUser();
+    const officeId = await withUser(app, userId, async (c) => {
+      const r = await c.query<{ id: string }>(`SELECT app.register_office('Фирми') AS id`);
+      return r.rows[0]!.id;
+    });
+    const companyId = await withTenant(app, { userId, officeId }, async (c) => {
+      const r = await c.query<{ id: string }>(`SELECT app.create_company('Нова фирма', '') AS id`);
+      return r.rows[0]!.id;
+    });
+    await withTenant(app, { userId, officeId, companyId }, async (c) => {
+      const fy = await c.query<{ year: number; ledger_currency: string }>(
+        'SELECT year, ledger_currency FROM app.fiscal_year',
+      );
+      const year = new Date().getFullYear();
+      expect(fy.rows).toEqual([{ year, ledger_currency: year <= 2025 ? 'BGN' : 'EUR' }]);
+      const p = await c.query<{ n: number; first: string; last: string }>(
+        `SELECT count(*)::int AS n, to_char(min(start_date), 'YYYY-MM-DD') AS first,
+                to_char(max(end_date), 'YYYY-MM-DD') AS last FROM app.period`,
+      );
+      expect(p.rows[0]).toEqual({ n: 12, first: `${year}-01-01`, last: `${year}-12-31` });
+      const feb = await c.query<{ d: string }>(
+        `SELECT to_char(end_date, 'YYYY-MM-DD') AS d FROM app.period WHERE month = 2`,
+      );
+      const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+      expect(feb.rows[0]!.d).toBe(`${year}-02-${leap ? 29 : 28}`);
+    });
+  });
+
+  it('rejects an empty company name', async () => {
+    const userId = await createAuthUser();
+    const officeId = await withUser(app, userId, async (c) => {
+      const r = await c.query<{ id: string }>(`SELECT app.register_office('Празно') AS id`);
+      return r.rows[0]!.id;
+    });
+    await expect(
+      withTenant(app, { userId, officeId }, (c) => c.query(`SELECT app.create_company('  ')`)),
+    ).rejects.toThrow(/Въведете име на фирмата/);
+  });
+});
