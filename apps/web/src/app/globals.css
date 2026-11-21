@@ -1,0 +1,111 @@
+@import 'tailwindcss';
+
+/*
+ * Semantic design tokens (docs/design-system.md). Components use ONLY these.
+ * Theme: data-theme="light|dark|black" on <html>; without it, follows the system setting.
+ */
+:root,
+[data-theme='light'] {
+  --surface: #f7f7f5;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f0f0ec;
+  --surface-selected: #e3ecfa;
+  --text: #1c1d1f;
+  --text-muted: #5e6168;
+  --border: #d9dad6;
+  --border-strong: #a9aba6;
+  --focus: #1f5fcc;
+  --accent: #1f5fcc;
+  --accent-text: #ffffff;
+  --positive: #1e7a3c;
+  --negative: #b42318;
+  --warning: #8a5a00;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --surface: #1e1f22;
+    --surface-raised: #26282c;
+    --surface-sunken: #1a1b1e;
+    --surface-selected: #2c3a52;
+    --text: #d8dadd;
+    --text-muted: #9a9ea6;
+    --border: #383b41;
+    --border-strong: #5a5e66;
+    --focus: #7fa8f0;
+    --accent: #7fa8f0;
+    --accent-text: #0e1420;
+    --positive: #6cc48a;
+    --negative: #f08a80;
+    --warning: #e0b050;
+    color-scheme: dark;
+  }
+}
+
+[data-theme='dark'] {
+  --surface: #1e1f22;
+  --surface-raised: #26282c;
+  --surface-sunken: #1a1b1e;
+  --surface-selected: #2c3a52;
+  --text: #d8dadd;
+  --text-muted: #9a9ea6;
+  --border: #383b41;
+  --border-strong: #5a5e66;
+  --focus: #7fa8f0;
+  --accent: #7fa8f0;
+  --accent-text: #0e1420;
+  --positive: #6cc48a;
+  --negative: #f08a80;
+  --warning: #e0b050;
+  color-scheme: dark;
+}
+
+[data-theme='black'] {
+  --surface: #000000;
+  --surface-raised: #0a0a0a;
+  --surface-sunken: #000000;
+  --surface-selected: #102240;
+  --text: #e6e6e6;
+  --text-muted: #a0a0a0;
+  --border: #3a3a3a;
+  --border-strong: #6a6a6a;
+  --focus: #8ab4ff;
+  --accent: #8ab4ff;
+  --accent-text: #000000;
+  --positive: #6cd48e;
+  --negative: #ff8f85;
+  --warning: #f0c060;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-selected: var(--surface-selected);
+  --color-fg: var(--text);
+  --color-fg-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-focus: var(--focus);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-text);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+}
+
+html,
+body {
+  background: var(--surface);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 14px;
+}
+
+/* Visible focus everywhere (design-system.md §1.2). */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

@@ -7,6 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "dev": "docker compose up -d postgres && pnpm --filter @kantora/web dev",
     "dev:db": "docker compose up -d",
     "dev:db:down": "docker compose down",
     "lint": "eslint .",

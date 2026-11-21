@@ -26,6 +26,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm --filter @kantora/web build
 
   integration:
     name: Database & tenant isolation

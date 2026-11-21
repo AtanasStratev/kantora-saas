@@ -14,6 +14,32 @@ export const TenantContext = z.object({
 export type TenantContext = z.infer<typeof TenantContext>;
 
 /**
+ * Runs `fn` in a transaction where only the signed-in user is known (no office yet):
+ * registration and office selection right after sign-in. RLS still applies, so office
+ * and company data stay invisible; only app.register_office / app.my_offices are useful.
+ */
+export async function withUser<T>(
+  pool: Pool,
+  userId: string,
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const id = z.uuid().parse(userId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.user_id', $1, true)`, [id]);
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Runs `fn` inside a transaction with the tenant context set via set_config(..., true)
  * (equivalent to SET LOCAL: the values vanish at COMMIT/ROLLBACK, so pooled connections
  * never leak context). This is the ONLY way application code may touch tenant data.

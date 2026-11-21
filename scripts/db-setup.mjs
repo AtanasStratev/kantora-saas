@@ -23,8 +23,17 @@ try {
       END IF;
     END
     $$;`);
-  // Re-grant every time: rolling back the first migration drops app_user and its memberships.
+  await client.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'kantora_auth') THEN
+        CREATE ROLE kantora_auth LOGIN PASSWORD 'kantora_auth_dev_only' NOBYPASSRLS;
+      END IF;
+    END
+    $$;`);
+  // Re-grant every time: rolling back migrations drops the group roles and their memberships.
   await client.query('GRANT app_user TO kantora_app');
+  await client.query('GRANT auth_service TO kantora_auth');
   console.log('Application role kantora_app is ready.');
 } finally {
   await client.end();
