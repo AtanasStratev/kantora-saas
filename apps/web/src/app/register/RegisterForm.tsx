@@ -6,7 +6,7 @@ import { Button, ErrorText, Field } from '@/components/ui';
 import { authClient, authErrorMessage } from '@/lib/auth-client';
 import { registerOffice } from '../actions';
 
-export function RegisterForm() {
+export function RegisterForm({ invite, email }: { invite?: string; email?: string }) {
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,6 +31,11 @@ export function RegisterForm() {
       setError(authErrorMessage(error));
       return;
     }
+    if (invite) {
+      setBusy(false);
+      router.push(`/2fa/setup?next=${encodeURIComponent(`/invite/${invite}`)}`);
+      return;
+    }
     const result = await registerOffice(String(form.get('office')));
     setBusy(false);
     if (result.error) {
@@ -44,9 +49,30 @@ export function RegisterForm() {
   return (
     <form onSubmit={onSubmit} noValidate>
       <ErrorText>{error}</ErrorText>
-      <Field label="Име на кантората" id="office" required autoFocus autoComplete="organization" />
-      <Field label="Вашето име" id="name" required autoComplete="name" />
-      <Field label="Имейл" id="email" type="email" required autoComplete="username" />
+      {invite ? null : (
+        <Field
+          label="Име на кантората"
+          id="office"
+          required
+          autoFocus
+          autoComplete="organization"
+        />
+      )}
+      <Field
+        label="Вашето име"
+        id="name"
+        required
+        autoComplete="name"
+        autoFocus={Boolean(invite)}
+      />
+      <Field
+        label="Имейл"
+        id="email"
+        type="email"
+        required
+        autoComplete="username"
+        {...(email ? { defaultValue: email, readOnly: true } : {})}
+      />
       <Field
         label="Парола"
         id="password"
@@ -64,7 +90,7 @@ export function RegisterForm() {
         autoComplete="new-password"
       />
       <Button type="submit" disabled={busy}>
-        {busy ? 'Създаване…' : 'Създай кантора'}
+        {busy ? 'Създаване…' : invite ? 'Създай профил' : 'Създай кантора'}
       </Button>
       <p className="mt-4 text-center text-xs text-fg-muted">
         Имате профил?{' '}

@@ -7,7 +7,7 @@ import { authClient, authErrorMessage } from '@/lib/auth-client';
 
 type Enrollment = { qrDataUrl: string; secret: string; backupCodes: string[] };
 
-export function SetupForm() {
+export function SetupForm({ next }: { next: string }) {
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,7 +42,7 @@ export function SetupForm() {
       setError(authErrorMessage(error));
       return;
     }
-    router.push('/');
+    router.push(next);
     router.refresh();
   }
 

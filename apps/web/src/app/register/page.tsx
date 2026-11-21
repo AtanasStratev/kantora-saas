@@ -1,10 +1,15 @@
 import { Card } from '@/components/ui';
 import { RegisterForm } from './RegisterForm';
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ invite?: string; email?: string }>;
+}) {
+  const { invite, email } = await searchParams;
   return (
-    <Card title="Регистрация на кантора">
-      <RegisterForm />
+    <Card title={invite ? 'Регистрация по покана' : 'Регистрация на кантора'}>
+      <RegisterForm {...(invite ? { invite } : {})} {...(email ? { email } : {})} />
     </Card>
   );
 }

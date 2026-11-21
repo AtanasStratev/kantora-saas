@@ -1,9 +1,19 @@
+import { can, isRole } from '@kantora/domain';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
 import { periodLabel } from '@/lib/period';
 
 export default async function HomePage() {
   const ctx = await getAppContext();
+  const role = ctx.office?.role;
+  if (ctx.companies.length === 0 && !(isRole(role) && can(role, 'company.create'))) {
+    return (
+      <EmptyState
+        title="Още нямате достъп до фирми"
+        next="Собственикът на кантората дава достъп от страницата „Екип“. Помолете го да ви добави."
+      />
+    );
+  }
   if (ctx.companies.length === 0) {
     return (
       <EmptyState

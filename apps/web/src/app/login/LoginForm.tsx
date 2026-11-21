@@ -5,7 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { Button, ErrorText, Field } from '@/components/ui';
 import { authClient, authErrorMessage } from '@/lib/auth-client';
 
-export function LoginForm() {
+export function LoginForm({ next }: { next: string }) {
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,10 +25,10 @@ export function LoginForm() {
       return;
     }
     if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) {
-      router.push('/login/2fa');
+      router.push(`/login/2fa?next=${encodeURIComponent(next)}`);
       return;
     }
-    router.push('/');
+    router.push(next);
     router.refresh();
   }
 

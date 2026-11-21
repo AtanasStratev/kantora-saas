@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Button, ErrorText, Field } from '@/components/ui';
 import { authClient, authErrorMessage } from '@/lib/auth-client';
 
-export function TotpForm() {
+export function TotpForm({ next }: { next: string }) {
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -23,7 +23,7 @@ export function TotpForm() {
       setError(authErrorMessage(error));
       return;
     }
-    router.push('/');
+    router.push(next);
     router.refresh();
   }
 

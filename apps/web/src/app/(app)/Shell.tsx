@@ -1,6 +1,6 @@
 'use client';
 import * as RD from '@radix-ui/react-dialog';
-import { matchScore } from '@kantora/domain';
+import { can, isRole, matchScore } from '@kantora/domain';
 import { Command } from 'cmdk';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -17,6 +17,7 @@ import { selectCompany, selectOffice, selectPeriod } from './context-actions';
 const NAV = [
   { href: '/', label: 'Начало', key: 'goHome' as const },
   { href: '/companies', label: 'Фирми', key: 'goCompanies' as const },
+  { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
 ];
 
 type PaletteMode = 'all' | 'company' | 'period';
@@ -40,6 +41,8 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
   const pendingG = useRef<number | null>(null);
 
   const go = useCallback((href: string) => router.push(href), [router]);
+  const role = ctx.office?.role;
+  const nav = NAV.filter((n) => !('ownerOnly' in n) || (isRole(role) && can(role, 'team.manage')));
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -71,7 +74,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
       if (pendingG.current !== null) {
         window.clearTimeout(pendingG.current);
         pendingG.current = null;
-        const target = { KeyH: '/', KeyF: '/companies', KeyD: '/design' }[e.code];
+        const target = { KeyH: '/', KeyF: '/companies', KeyD: '/design', KeyE: '/team' }[e.code];
         if (target) {
           e.preventDefault();
           go(target);
@@ -140,7 +143,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           className="w-48 border-r border-line bg-surface-raised p-2"
         >
           <ul className="flex flex-col gap-1">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <li key={n.href}>
                 <Link
                   href={n.href}
@@ -177,6 +180,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
 
       <Palette
         mode={palette}
+        nav={nav}
         ctx={ctx}
         onClose={() => setPalette(null)}
         onCompany={(id) => choose(() => selectCompany(id))}
@@ -210,6 +214,7 @@ const PLACEHOLDER: Record<PaletteMode, string> = {
 
 function Palette({
   mode,
+  nav,
   ctx,
   onClose,
   onCompany,
@@ -220,6 +225,7 @@ function Palette({
   onSignOut,
 }: {
   mode: PaletteMode | null;
+  nav: typeof NAV;
   ctx: AppContext;
   onClose: () => void;
   onCompany: (id: string) => void;
@@ -331,7 +337,7 @@ function Palette({
               heading="Страници"
               className="text-xs text-fg-muted [&_[cmdk-item]]:text-sm [&_[cmdk-item]]:text-fg"
             >
-              {[...NAV, { href: '/design', label: 'Дизайн система', key: 'goDesign' as const }].map(
+              {[...nav, { href: '/design', label: 'Дизайн система', key: 'goDesign' as const }].map(
                 (n) => (
                   <Command.Item
                     key={n.href}
