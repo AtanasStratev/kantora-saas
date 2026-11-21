@@ -17,6 +17,7 @@ import { selectCompany, selectOffice, selectPeriod } from './context-actions';
 const NAV = [
   { href: '/', label: 'Начало', key: 'goHome' as const },
   { href: '/companies', label: 'Фирми', key: 'goCompanies' as const },
+  { href: '/parameters', label: 'Параметри', key: 'goParameters' as const },
   { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
 ];
 
@@ -74,7 +75,13 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
       if (pendingG.current !== null) {
         window.clearTimeout(pendingG.current);
         pendingG.current = null;
-        const target = { KeyH: '/', KeyF: '/companies', KeyD: '/design', KeyE: '/team' }[e.code];
+        const target = {
+          KeyH: '/',
+          KeyF: '/companies',
+          KeyD: '/design',
+          KeyE: '/team',
+          KeyP: '/parameters',
+        }[e.code];
         if (target) {
           e.preventDefault();
           go(target);

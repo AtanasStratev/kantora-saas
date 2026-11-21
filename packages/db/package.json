@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@kantora/domain": "workspace:*",
     "pg": "^8.23.1",
     "zod": "^4.6.7"
   },

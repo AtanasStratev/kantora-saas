@@ -123,6 +123,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@kantora/domain':
+        specifier: workspace:*
+        version: link:../domain
       pg:
         specifier: ^8.23.1
         version: 8.23.1

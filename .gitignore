@@ -15,3 +15,4 @@ Thumbs.db
 .turbo/
 .claude/settings.local.json
 apps/web/next-env.d.ts
+db/dev/*.local.json

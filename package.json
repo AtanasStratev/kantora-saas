@@ -20,7 +20,8 @@
     "db:migrate": "dbmate --no-dump-schema up",
     "db:rollback": "dbmate --no-dump-schema rollback",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:seed": "node scripts/seed-demo.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

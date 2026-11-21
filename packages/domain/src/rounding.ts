@@ -12,8 +12,10 @@ const D = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 export type DecimalInput = string | Decimal;
 
 /**
- * Official fixed conversion rate 1 EUR = 1.95583 BGN.
- * ЗВЕРБ чл. 12, ал. 1–2: used with all six significant digits, never rounded or truncated.
+ * Fixed conversion rate 1 EUR = 1.95583 BGN: Council Regulation (EU) 2025/1409, Art. 1
+ * (in force 1 January 2026). Mirrors legal_parameter 'eur_bgn_conversion_rate'; an
+ * integration test fails if the two ever differ. ЗВЕРБ чл. 12, ал. 1–2: used with all six
+ * significant digits, never rounded or truncated.
  */
 export const BGN_PER_EUR = new D('1.95583');
 

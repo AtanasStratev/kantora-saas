@@ -12,6 +12,7 @@ export type ShortcutId =
   | 'goHome'
   | 'goCompanies'
   | 'goTeam'
+  | 'goParameters'
   | 'goDesign';
 
 export type Shortcut = {
@@ -40,6 +41,13 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['g', 'e'],
     sequence: true,
     label: 'Към екипа (собственик)',
+    group: 'Навигация',
+  },
+  {
+    id: 'goParameters',
+    keys: ['g', 'p'],
+    sequence: true,
+    label: 'Към параметрите по закон',
     group: 'Навигация',
   },
   {
