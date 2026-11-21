@@ -4,3 +4,5 @@ CLAUDE.md
 pnpm-lock.yaml
 node_modules/
 coverage/
+apps/web/next-env.d.ts
+.next/
