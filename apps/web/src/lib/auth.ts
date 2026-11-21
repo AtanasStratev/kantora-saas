@@ -24,6 +24,9 @@ const ARGON2 = {
   parallelism: 1,
 } as const;
 
+// Production limits; multiplied only in development/e2e (env.ts forbids it in production).
+const RL = env.AUTH_RATE_LIMIT_MULTIPLIER;
+
 export const auth = betterAuth({
   appName: 'Кантора',
   baseURL: env.BETTER_AUTH_URL,
@@ -51,11 +54,11 @@ export const auth = betterAuth({
     enabled: true,
     storage: 'database',
     window: 60,
-    max: 100,
+    max: 100 * RL,
     customRules: {
-      '/sign-in/email': { window: 60, max: 5 },
-      '/sign-up/email': { window: 60, max: 3 },
-      '/two-factor/*': { window: 60, max: 5 },
+      '/sign-in/email': { window: 60, max: 5 * RL },
+      '/sign-up/email': { window: 60, max: 3 * RL },
+      '/two-factor/*': { window: 60, max: 5 * RL },
     },
   },
   plugins: [twoFactor({ issuer: 'Кантора' }), nextCookies()],
