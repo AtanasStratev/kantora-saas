@@ -73,7 +73,7 @@ export function SetupForm() {
         src={enrollment.qrDataUrl}
         width={192}
         height={192}
-        className="mx-auto mb-2 rounded bg-white p-2"
+        className="mx-auto mb-2 rounded bg-qr-surface p-2"
         alt="QR код за приложението за удостоверяване"
       />
       <p className="mb-4 text-center text-xs text-fg-muted">

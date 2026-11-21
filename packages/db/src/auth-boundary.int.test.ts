@@ -103,3 +103,28 @@ describe('office registration', () => {
     expect(noUser.rowCount).toBe(0);
   });
 });
+
+describe('user preferences', () => {
+  it('each user sees and changes only their own preferences', async () => {
+    const a = await createAuthUser();
+    const b = await createAuthUser();
+    await withUser(app, a, (c) => c.query(`SELECT app.register_office('Пред А')`));
+    await withUser(app, b, (c) => c.query(`SELECT app.register_office('Пред Б')`));
+    await withUser(app, a, (c) =>
+      c.query(`INSERT INTO app.user_preference (user_id, theme) VALUES ($1, 'black')`, [a]),
+    );
+    const seenByB = await withUser(app, b, (c) =>
+      c.query('SELECT 1 FROM app.user_preference WHERE user_id = $1', [a]),
+    );
+    expect(seenByB.rowCount).toBe(0);
+    const updatedByB = await withUser(app, b, (c) =>
+      c.query(`UPDATE app.user_preference SET theme = 'light' WHERE user_id = $1`, [a]),
+    );
+    expect(updatedByB.rowCount).toBe(0);
+    await expect(
+      withUser(app, b, (c) =>
+        c.query(`INSERT INTO app.user_preference (user_id, theme) VALUES ($1, 'dark')`, [a]),
+      ),
+    ).rejects.toThrow(/row-level security|duplicate key/);
+  });
+});

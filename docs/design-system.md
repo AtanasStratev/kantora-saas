@@ -36,7 +36,7 @@
 | `--warning` | Предупреждение, незаключен минал период |
 | `--locked` | Заключен период |
 
-### Начални стойности (ще се проверят автоматично за WCAG AA)
+### Стойности (проверени автоматично за WCAG AA: `apps/web/src/theme/contrast.test.ts`)
 
 | Токен | Светла | Тъмна | Черна |
 |-------|--------|-------|-------|
@@ -45,14 +45,16 @@
 | `--surface-sunken` | #F0F0EC | #1A1B1E | #000000 |
 | `--surface-selected` | #E3ECFA | #2C3A52 | #102240 |
 | `--text` | #1C1D1F | #D8DADD | #E6E6E6 |
-| `--text-muted` | #5E6168 | #9A9EA6 | #A0A0A0 |
+| `--text-muted` | #5E6168 | #A6AAB2 | #A0A0A0 |
 | `--border` | #D9DAD6 | #383B41 | #3A3A3A |
-| `--border-strong` | #A9ABA6 | #5A5E66 | #6A6A6A |
+| `--border-strong` | #80837E | #868B94 | #7A7A7A |
 | `--focus` | #1F5FCC | #7FA8F0 | #8AB4FF |
 | `--accent` | #1F5FCC | #7FA8F0 | #8AB4FF |
 | `--positive` | #1E7A3C | #6CC48A | #6CD48E |
 | `--negative` | #B42318 | #F08A80 | #FF8F85 |
 | `--warning` | #8A5A00 | #E0B050 | #F0C060 |
+| `--overlay` | черно 45 % | черно 60 % | черно 75 % |
+| `--qr-surface` | #FFFFFF | #FFFFFF | #FFFFFF |
 
 - **Тъмна:** тъмносиви повърхности, без чисто бяло (намален контраст за дълга работа).
 - **Черна:** истински #000 за OLED. Панелите се разделят с ясни граници (`--border`),
