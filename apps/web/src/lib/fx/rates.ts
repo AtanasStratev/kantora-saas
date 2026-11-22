@@ -108,6 +108,9 @@ export async function bnbDay(userId: string, date: string): Promise<ResolvedDay>
   });
 }
 
+/** A rate as published, with the Bulgarian decimal comma (1.0990 → 1,0990). */
+const bg = (rate: string) => rate.replace(/(\d)\.(\d)/, '$1,$2');
+
 export type Conversion =
   | {
       ok: true;
@@ -168,7 +171,7 @@ export async function toLedgerCurrency(
       result: convertWithBnbRate(amount, { kind: 'bgn_per_units', rate: peg, units: 1 }).toFixed(2),
       ledgerCurrency: 'BGN',
       rateDate: null,
-      basis: `сума × ${peg} (фиксиран курс на лева към еврото, паричен съвет, БНБ)`,
+      basis: `сума × ${bg(peg)} (фиксиран курс на лева към еврото, паричен съвет, БНБ)`,
     };
   }
   const day = await bnbDay(userId, date);
@@ -187,7 +190,7 @@ export async function toLedgerCurrency(
     rateDate: day.rateDate,
     basis:
       rate.quote.kind === 'per_eur'
-        ? `сума ÷ ${rate.quote.rate} (${currency} за 1 евро)`
-        : `сума × ${rate.quote.rate} ÷ ${rate.quote.units} (лева за ${rate.quote.units} ${currency})`,
+        ? `сума ÷ ${bg(rate.quote.rate)} (${currency} за 1 евро)`
+        : `сума × ${bg(rate.quote.rate)} ÷ ${rate.quote.units} (лева за ${rate.quote.units} ${currency})`,
   };
 }
