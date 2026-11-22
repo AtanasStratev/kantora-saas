@@ -63,6 +63,10 @@ jobs:
           for i in $(seq 1 "$count"); do pnpm exec dbmate --no-dump-schema rollback; done
           pnpm db:setup
       - run: pnpm test:int
+      - name: Restore rehearsal (backup, restore, compare, verify)
+        run: |
+          set -a; . ./.env; set +a
+          pnpm db:restore-check
 
   e2e:
     name: End-to-end (Playwright, axe, screenshots)
