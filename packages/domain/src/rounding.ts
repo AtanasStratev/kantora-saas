@@ -46,6 +46,31 @@ export function convertBgnToEur(bgn: DecimalInput): Decimal {
   return roundHalfUp(toDecimal(bgn).dividedBy(BGN_PER_EUR), 2);
 }
 
+/** How a BNB central rate is quoted (docs/legal/README.md, „Курсове на БНБ: формат“). */
+export type BnbQuote =
+  /** From 1.01.2026: units of the currency for 1 EUR (the euro's rate to the currency). */
+  | { kind: 'per_eur'; rate: string }
+  /** Until 31.12.2025: BGN for `units` units of the currency. */
+  | { kind: 'bgn_per_units'; rate: string; units: number };
+
+/**
+ * A foreign-currency amount in the ledger currency with the BNB central rate of the
+ * transaction date (ЗСч чл. 5, ал. 1). The published rate is used as it is, without
+ * intermediate rounding; the result is rounded to 2 decimals half-up. Rounding of
+ * converted amounts is not set by a text we found (ЗВЕРБ чл. 13 covers BGN → EUR only):
+ * open question 2 in docs/legal/README.md, pending the pilot's confirmation.
+ */
+export function convertWithBnbRate(amount: DecimalInput, quote: BnbQuote): Decimal {
+  const a = toDecimal(amount);
+  const rate = toDecimal(quote.rate);
+  if (!rate.gt(0)) throw new Error('A BNB rate must be positive'); // isPositive() is true for 0
+  if (quote.kind === 'per_eur') return roundHalfUp(a.dividedBy(rate), 2);
+  if (!Number.isInteger(quote.units) || quote.units < 1) {
+    throw new Error('Units of a BNB rate must be a positive integer');
+  }
+  return roundHalfUp(a.times(rate).dividedBy(quote.units), 2);
+}
+
 /** Formats a Decimal as a fixed 2-decimal string for storage/transport (numeric(19,2)). */
 export function toMoneyString(value: Decimal): string {
   return value.toFixed(2);

@@ -5,3 +5,4 @@ export * from './permissions';
 export * from './legal-parameters';
 export * from './journal';
 export * from './templates';
+export * from './fx';

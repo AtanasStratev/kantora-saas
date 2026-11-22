@@ -20,6 +20,7 @@ const NAV = [
   { href: '/journal', label: 'Статии', key: 'goJournal' as const },
   { href: '/reports/trial-balance', label: 'Оборотна ведомост', key: 'goTrialBalance' as const },
   { href: '/accounts', label: 'Сметкоплан', key: 'goAccounts' as const },
+  { href: '/rates', label: 'Курсове', key: 'goRates' as const },
   { href: '/parameters', label: 'Параметри', key: 'goParameters' as const },
   { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
 ];
@@ -94,6 +95,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           KeyJ: '/journal',
           KeyS: '/accounts',
           KeyT: '/reports/trial-balance',
+          KeyK: '/rates',
         }[e.code];
         if (target) {
           e.preventDefault();
