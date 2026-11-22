@@ -1,5 +1,5 @@
 'use server';
-import { parseAmount, postingProblems, type EntryLine } from '@kantora/domain';
+import { parseAmount, postingProblems, toTemplateLines, type EntryLine } from '@kantora/domain';
 import { withTenant } from '@kantora/db';
 import { DatabaseError } from 'pg';
 import { z } from 'zod';
@@ -193,6 +193,81 @@ export async function reverseEntry(entryId: string, date: string): Promise<Resul
       if (!newId) throw new Error('reverse_entry returned no id');
       return { id: newId };
     });
+  } catch (err) {
+    return dbError(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Entry templates
+// ---------------------------------------------------------------------------
+const TemplateInput = z.object({
+  name: z.string().trim().min(1, 'Въведете име на шаблона.').max(120, 'Името е твърде дълго.'),
+  description: z.string().trim().max(500),
+  rows: z
+    .array(
+      z.object({
+        accountId: z.union([z.uuid(), z.literal('')]),
+        debit: z.string().max(40),
+        credit: z.string().max(40),
+        memo: z.string().max(500),
+      }),
+    )
+    .max(500),
+});
+
+/** Saves the grid as a template. Amounts are optional; 0 marks the side only. */
+export async function saveTemplate(
+  input: z.infer<typeof TemplateInput>,
+): Promise<Result<{ id: string }>> {
+  const scope = await companyScope('accounting.post');
+  if ('error' in scope) return { error: scope.error };
+  const parsed = TemplateInput.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Невалидни данни.' };
+  const lines = toTemplateLines(parsed.data.rows);
+  if (!lines.ok) return { error: 'Шаблонът не е запазен.', problems: lines.problems };
+  const { officeId, companyId } = scope.tenant;
+  try {
+    return await withTenant(appPool, scope.tenant, async (c) => {
+      const t = await c.query<{ id: string }>(
+        `INSERT INTO app.entry_template (office_id, company_id, name, description)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [officeId, companyId, parsed.data.name, parsed.data.description],
+      );
+      const id = t.rows[0]?.id;
+      if (!id) throw new Error('entry_template insert returned no id');
+      let n = 0;
+      for (const l of lines.lines) {
+        await c.query(
+          `INSERT INTO app.entry_template_line
+             (office_id, company_id, template_id, line_no, account_id, side, amount, description)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [officeId, companyId, id, ++n, l.accountId, l.side, l.amount, l.description],
+        );
+      }
+      return { id };
+    });
+  } catch (err) {
+    const e = dbError(err);
+    return e.error === 'Такъв запис вече съществува.'
+      ? { error: `Шаблон с име „${parsed.data.name}“ вече има.` }
+      : e;
+  }
+}
+
+export async function deleteTemplate(templateId: string): Promise<Result> {
+  const scope = await companyScope('accounting.post');
+  if ('error' in scope) return { error: scope.error };
+  const id = z.uuid().safeParse(templateId);
+  if (!id.success) return { error: 'Невалиден шаблон.' };
+  try {
+    const n = await withTenant(
+      appPool,
+      scope.tenant,
+      async (c) =>
+        (await c.query('DELETE FROM app.entry_template WHERE id = $1', [id.data])).rowCount,
+    );
+    return n ? {} : { error: 'Шаблонът не е намерен.' };
   } catch (err) {
     return dbError(err);
   }

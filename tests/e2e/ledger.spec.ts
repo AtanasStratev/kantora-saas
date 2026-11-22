@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
+import { strFromU8, unzipSync } from 'fflate';
 import { OWNER_STATE } from './owner';
 
 test.use({ storageState: OWNER_STATE });
@@ -49,8 +50,12 @@ async function checkThemes(page: Page, context: BrowserContext, screens: Record<
 }
 
 test.describe('ledger, keyboard only', () => {
-  test('accounts → entry → trial balance → reversal → locked period', async ({ page, context }) => {
-    test.setTimeout(240_000);
+  test('accounts → entry → trial balance → reversal → locked period', async ({
+    page,
+    context,
+    playwright,
+  }) => {
+    test.setTimeout(300_000);
     const company = `Леджър ${randomBytes(3).toString('hex')} ООД`;
     await page.goto('/companies');
     await page.getByLabel('Наименование').fill(company);
@@ -130,7 +135,65 @@ test.describe('ledger, keyboard only', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Отключи' }).click();
     await expect(page.getByRole('link', { name: 'Нова статия (F2)' })).toBeVisible();
 
+    // Template: save rows with "0" (side only), load with F4, type the amount, post.
+    await page.goto('/journal/new');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await typeRow(page, '601', '0', 'D');
+    await typeRow(page, '401', '0', 'C');
+    await page.getByRole('button', { name: 'Запази като шаблон…' }).click();
+    const save = page.getByRole('dialog', { name: 'Запазване като шаблон' });
+    await save.getByLabel('Име на шаблона').fill('Материали от доставчик');
+    await page.keyboard.press('Enter');
+    await expect(save).toBeHidden();
+    await expect(page.getByText('Шаблонът „Материали от доставчик“ е запазен.')).toBeVisible();
+
+    await page.goto('/journal/new');
+    await page.locator('body').press('F4');
+    await page.keyboard.type('матер');
+    await page.keyboard.press('Enter');
+    await expect(page.getByLabel('Ред 1, сметка')).toHaveValue('601 Разходи за материали');
+    await expect(page.getByLabel('Ред 1, дебит')).toBeFocused();
+    await page.keyboard.type('75');
+    await page.getByLabel('Ред 2, кредит').focus();
+    await page.keyboard.press('F9');
+    await expect(page.getByTestId('balance-status')).toHaveText('Дт = Кт');
+    await page.keyboard.press('Control+Enter');
+    await expect(page.getByText(/Статия № 3 от .* е осчетоводена/)).toBeVisible();
+    await page.goto('/journal/templates');
+    await expect(page.getByRole('heading', { name: 'Материали от доставчик' })).toBeVisible();
+
+    // Export: the files carry the same figures as the screen.
     await page.goto('/reports/trial-balance');
+    await expect(page.getByTestId('tb-total-2')).toHaveText('316,00');
+    const xlsxLink = page.getByRole('link', { name: 'Excel' });
+    await xlsxLink.focus();
+    const downloading = page.waitForEvent('download');
+    await page.keyboard.press('Enter');
+    const download = await downloading;
+    expect(download.suggestedFilename()).toMatch(/^oborotna-vedomost-\d{4}-\d{2}\.xlsx$/);
+    const xlsx = await page.request.get((await xlsxLink.getAttribute('href')) ?? '');
+    expect(xlsx.headers()['content-type']).toContain('spreadsheetml');
+    const sheet = strFromU8(
+      unzipSync(await xlsx.body())['xl/worksheets/sheet1.xml'] ?? new Uint8Array(),
+    );
+    expect(sheet).toContain('<v>316.00</v>');
+    expect(sheet).toContain('Разходи за материали');
+    const pdf = await page.request.get(
+      (await page.getByRole('link', { name: 'PDF' }).getAttribute('href')) ?? '',
+    );
+    expect(pdf.headers()['content-type']).toBe('application/pdf');
+    expect((await pdf.body()).subarray(0, 5).toString()).toBe('%PDF-');
+    // Without a session the export answers with a redirect to the login page, no file.
+    const anonymous = await playwright.request.newContext({
+      baseURL: 'http://localhost:3000',
+      storageState: { cookies: [], origins: [] },
+    });
+    const anon = await anonymous.get('/export/trial-balance?format=xlsx', { maxRedirects: 0 });
+    expect(anon.status()).toBe(307);
+    expect(anon.headers()['location']).toContain('/login');
+    await anonymous.dispose();
+
     const cardUrl = await page.getByRole('link', { name: /601/ }).getAttribute('href');
     await checkThemes(page, context, {
       'ledger-entry-new': '/journal/new',
@@ -139,6 +202,7 @@ test.describe('ledger, keyboard only', () => {
       'ledger-trial-balance': '/reports/trial-balance',
       'ledger-account-card': cardUrl ?? '/reports/trial-balance',
       'ledger-accounts': '/accounts',
+      'ledger-templates': '/journal/templates',
     });
   });
 });

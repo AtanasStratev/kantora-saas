@@ -2,7 +2,7 @@ import { can, isRole } from '@kantora/domain';
 import Link from 'next/link';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { loadAccounts } from '@/lib/ledger-data';
+import { loadAccounts, loadTemplates } from '@/lib/ledger-data';
 import { periodLabel } from '@/lib/period';
 import { EntryForm } from './EntryForm';
 
@@ -30,11 +30,8 @@ export default async function NewEntryPage() {
       />
     );
   }
-  const accounts = await loadAccounts({
-    userId: ctx.user.id,
-    officeId: ctx.office.id,
-    companyId: ctx.company.id,
-  });
+  const tenant = { userId: ctx.user.id, officeId: ctx.office.id, companyId: ctx.company.id };
+  const [accounts, templates] = await Promise.all([loadAccounts(tenant), loadTemplates(tenant)]);
   if (!accounts.some((a) => a.isPostable && a.isActive)) {
     return (
       <div>
@@ -53,8 +50,10 @@ export default async function NewEntryPage() {
   }
   const y = ctx.period.year;
   const m = ctx.period.month;
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  // "Today" in Bulgaria, not in UTC (after midnight Sofia time UTC is still yesterday).
+  const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Sofia' }).format(
+    new Date(),
+  );
   const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   const first = `${y}-${String(m).padStart(2, '0')}-01`;
   const defaultDate = todayIso >= first && todayIso <= last ? todayIso : last;
@@ -67,6 +66,7 @@ export default async function NewEntryPage() {
       </p>
       <EntryForm
         accounts={accounts}
+        templates={templates}
         period={{ year: y, month: m, today: todayIso, label: periodLabel(ctx.period) }}
         defaultDate={defaultDate}
       />

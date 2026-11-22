@@ -1,21 +1,11 @@
 import { can, formatAmount, formatDate, isRole } from '@kantora/domain';
-import { withTenant } from '@kantora/db';
 import Link from 'next/link';
 import { Badge, EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { appPool } from '@/lib/db';
+import { ExportLinks } from '@/components/ExportLinks';
+import { journalList } from '@/lib/reports';
 import { periodLabel } from '@/lib/period';
 import { PeriodLockButton } from './PeriodLockButton';
-
-type Row = {
-  id: string;
-  number: number;
-  entry_date: string;
-  description: string;
-  total: string;
-  reverses_entry_id: string | null;
-  reversed_by: string | null;
-};
 
 export default async function JournalPage() {
   const ctx = await getAppContext();
@@ -35,23 +25,7 @@ export default async function JournalPage() {
   }
   const period = ctx.period;
   const tenant = { userId: ctx.user.id, officeId: ctx.office.id, companyId: ctx.company.id };
-  const rows = await withTenant(
-    appPool,
-    tenant,
-    async (c) =>
-      (
-        await c.query<Row>(
-          `SELECT e.id, e.number, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date, e.description,
-                (SELECT sum(amount) FROM app.journal_line l WHERE l.entry_id = e.id AND l.side = 'D')::text AS total,
-                e.reverses_entry_id, r.id AS reversed_by
-         FROM app.journal_entry e
-         LEFT JOIN app.journal_entry r ON r.reverses_entry_id = e.id
-         WHERE e.period_id = $1 AND e.status = 'posted'
-         ORDER BY e.number`,
-          [period.id],
-        )
-      ).rows,
-  );
+  const rows = await journalList(tenant, period.id);
   const canPost = can(role, 'accounting.post') && !period.locked;
 
   return (
@@ -61,6 +35,10 @@ export default async function JournalPage() {
           Статии — {periodLabel(period)} {period.locked ? <Badge kind="locked" /> : null}
         </h1>
         <span className="ml-auto flex items-center gap-3">
+          {rows.length > 0 ? <ExportLinks report="journal" params={{}} /> : null}
+          <Link href="/journal/templates" className="text-accent underline">
+            Шаблони
+          </Link>
           {canPost ? (
             <Link
               href="/journal/new"

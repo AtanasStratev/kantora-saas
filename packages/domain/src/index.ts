@@ -4,3 +4,4 @@ export * from './search';
 export * from './permissions';
 export * from './legal-parameters';
 export * from './journal';
+export * from './templates';

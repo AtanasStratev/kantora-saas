@@ -1,22 +1,12 @@
 import { can, formatAmount, formatDate, isRole } from '@kantora/domain';
-import { withTenant } from '@kantora/db';
 import Decimal from 'decimal.js';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { appPool } from '@/lib/db';
-
-type Line = {
-  entry_id: string;
-  number: number;
-  entry_date: string;
-  description: string;
-  side: 'D' | 'C';
-  amount: string;
-  running: string;
-};
+import { ExportLinks } from '@/components/ExportLinks';
+import { accountCard, monthRange } from '@/lib/reports';
 
 /** Картон на сметка: the entries behind a trial balance figure, with a running balance. */
 export default async function AccountCardPage({
@@ -46,40 +36,9 @@ export default async function AccountCardPage({
   }
   const period = ctx.period;
   const sp = await searchParams;
-  const m = (v: string | undefined, d: number) => {
-    const n = Number(v);
-    return Number.isInteger(n) && n >= 1 && n <= 12 ? n : d;
-  };
-  const to = m(sp.to, period.month);
-  const from = Math.min(m(sp.from, period.month), to);
+  const { from, to } = monthRange(sp, period.month);
   const tenant = { userId: ctx.user.id, officeId: ctx.office.id, companyId: ctx.company.id };
-
-  const data = await withTenant(appPool, tenant, async (c) => {
-    const acc = await c.query<{ code: string; name: string }>(
-      'SELECT code, name FROM app.account WHERE id = $1',
-      [id],
-    );
-    const base = `FROM app.journal_line l
-                  JOIN app.journal_entry e ON e.id = l.entry_id AND e.status = 'posted'
-                  JOIN app.period p ON p.id = e.period_id
-                  WHERE l.account_id = $1
-                    AND p.fiscal_year_id = (SELECT fiscal_year_id FROM app.period WHERE id = $2)`;
-    const opening = await c.query<{ v: string }>(
-      `SELECT coalesce(sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END), 0)::text AS v
-       ${base} AND p.month < $3`,
-      [id, period.id, from],
-    );
-    const lines = await c.query<Line>(
-      `SELECT e.id AS entry_id, e.number, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date,
-              coalesce(nullif(l.description, ''), e.description) AS description, l.side, l.amount::text,
-              ($5::numeric + sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END)
-                 OVER (ORDER BY e.entry_date, e.number, l.line_no))::text AS running
-       ${base} AND p.month BETWEEN $3 AND $4
-       ORDER BY e.entry_date, e.number, l.line_no`,
-      [id, period.id, from, to, opening.rows[0]?.v ?? '0'],
-    );
-    return { account: acc.rows[0], opening: opening.rows[0]?.v ?? '0', lines: lines.rows };
-  });
+  const data = await accountCard(tenant, id, period.id, from, to);
   if (!data.account) notFound();
 
   const bal = (v: string) => {
@@ -87,7 +46,7 @@ export default async function AccountCardPage({
     if (d.isZero()) return '0,00';
     return `${formatAmount(d.abs())} ${d.isPositive() ? 'Дт' : 'Кт'}`;
   };
-  const closing = data.lines.at(-1)?.running ?? data.opening;
+  const closing = data.closing;
 
   return (
     <div className="max-w-5xl">
@@ -103,9 +62,17 @@ export default async function AccountCardPage({
         Картон на сметка <span className="tabular-nums">{data.account.code}</span>{' '}
         {data.account.name}
       </h1>
-      <p className="mb-4 text-sm text-fg-muted">
-        Начално салдо: {bal(data.opening)} · крайно салдо: {bal(closing)} · {period.ledgerCurrency}
-      </p>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <p className="text-sm text-fg-muted">
+          Начално салдо: {bal(data.opening)} · крайно салдо: {bal(closing)} ·{' '}
+          {period.ledgerCurrency}
+        </p>
+        {data.lines.length > 0 ? (
+          <span className="ml-auto">
+            <ExportLinks report="account-card" params={{ id, from, to }} />
+          </span>
+        ) : null}
+      </div>
       {data.lines.length === 0 ? (
         <EmptyState
           title="Няма движения по сметката в избрания период"

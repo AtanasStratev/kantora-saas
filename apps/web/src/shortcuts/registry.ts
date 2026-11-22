@@ -17,6 +17,7 @@ export type ShortcutId =
   | 'goAccounts'
   | 'goTrialBalance'
   | 'newEntry'
+  | 'entryTemplate'
   | 'goDesign';
 
 export type Shortcut = {
@@ -48,6 +49,12 @@ export const SHORTCUTS: Shortcut[] = [
     group: 'Навигация',
   },
   { id: 'newEntry', keys: ['F2'], label: 'Нова статия', group: 'Общи' },
+  {
+    id: 'entryTemplate',
+    keys: ['F4'],
+    label: 'Шаблон на статия (в „Нова статия“)',
+    group: 'Общи',
+  },
   { id: 'goJournal', keys: ['g', 'j'], sequence: true, label: 'Към статиите', group: 'Навигация' },
   {
     id: 'goAccounts',

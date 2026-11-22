@@ -1,25 +1,11 @@
 import { can, formatAmount, isRole } from '@kantora/domain';
-import { withTenant } from '@kantora/db';
 import Decimal from 'decimal.js';
 import Link from 'next/link';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { appPool } from '@/lib/db';
+import { ExportLinks } from '@/components/ExportLinks';
 import { periodLabel } from '@/lib/period';
-
-type Row = {
-  account_id: string;
-  code: string;
-  name: string;
-  od: string;
-  oc: string;
-  td: string;
-  tc: string;
-  cd: string;
-  cc: string;
-};
-
-const MONTHS = ['яну', 'фев', 'мар', 'апр', 'май', 'юни', 'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'];
+import { monthRange, NOT_RECONCILED, RECONCILED, rangeLabel, trialBalance } from '@/lib/reports';
 
 /**
  * Оборотна ведомост for months [from..to] of the selected period's fiscal year.
@@ -49,47 +35,12 @@ export default async function TrialBalancePage({
   }
   const period = ctx.period;
   const sp = await searchParams;
-  const clamp = (v: string | undefined, d: number) => {
-    const n = Number(v);
-    return Number.isInteger(n) && n >= 1 && n <= 12 ? n : d;
-  };
-  const to = clamp(sp.to, period.month);
-  const from = Math.min(clamp(sp.from, period.month), to);
+  const { from, to } = monthRange(sp, period.month);
   const year = period.year;
   const tenant = { userId: ctx.user.id, officeId: ctx.office.id, companyId: ctx.company.id };
-
-  // All arithmetic in PostgreSQL numeric (never float). Net balances per side, exactly like
-  // domain/journal.ts trialBalance (unit-tested there, reconciled in ledger.int.test.ts).
-  const rows = await withTenant(appPool, tenant, async (c) =>
-    (
-      await c.query<Row>(
-        `WITH fy AS (SELECT p.fiscal_year_id AS id FROM app.period p WHERE p.id = $1),
-              sums AS (
-                SELECT l.account_id,
-                       coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month < $2), 0) AS od,
-                       coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month < $2), 0) AS oc,
-                       coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month >= $2), 0) AS td,
-                       coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month >= $2), 0) AS tc
-                FROM app.journal_line l
-                JOIN app.journal_entry e ON e.id = l.entry_id AND e.status = 'posted'
-                JOIN app.period p ON p.id = e.period_id
-                WHERE p.fiscal_year_id = (SELECT id FROM fy) AND p.month <= $3
-                GROUP BY l.account_id)
-         SELECT a.id AS account_id, a.code, a.name,
-                greatest(od - oc, 0)::text AS od, greatest(oc - od, 0)::text AS oc,
-                td::text AS td, tc::text AS tc,
-                greatest(od + td - oc - tc, 0)::text AS cd, greatest(oc + tc - od - td, 0)::text AS cc
-         FROM sums JOIN app.account a ON a.id = sums.account_id`,
-        [period.id, from, to],
-      )
-    ).rows.sort((x, y) => x.code.localeCompare(y.code, 'bg', { numeric: true })),
-  );
+  // Same query as the Excel/PDF export (lib/reports.ts): numeric in PostgreSQL, never float.
+  const { rows, totals, reconciled } = await trialBalance(tenant, period.id, from, to);
   const fmt = (v: string) => (new Decimal(v).isZero() ? '' : formatAmount(v));
-  const cols = ['od', 'oc', 'td', 'tc', 'cd', 'cc'] as const;
-  const totals = Object.fromEntries(
-    cols.map((k) => [k, rows.reduce((s, r) => s.plus(r[k]), new Decimal(0)).toFixed(2)]),
-  ) as Record<(typeof cols)[number], string>;
-  const reconciled = totals.od === totals.oc && totals.td === totals.tc && totals.cd === totals.cc;
   const view = rows;
   const q = (f: number, t: number) => `?from=${f}&to=${t}`;
 
@@ -97,8 +48,8 @@ export default async function TrialBalancePage({
     <div>
       <h1 className="mb-1 text-xl font-semibold">Оборотна ведомост — {ctx.company.name}</h1>
       <p className="mb-3 text-sm text-fg-muted">
-        {from === to ? MONTHS[from - 1] : `${MONTHS[from - 1]}–${MONTHS[to - 1]}`} {year} · в{' '}
-        {period.ledgerCurrency} · началните салда са от началото на {year} г.
+        {rangeLabel(from, to, year)} · в {period.ledgerCurrency} · началните салда са от началото на{' '}
+        {year} г.
       </p>
       <nav aria-label="Период на справката" className="mb-4 flex flex-wrap gap-2 text-sm">
         <Link
@@ -113,6 +64,11 @@ export default async function TrialBalancePage({
         <Link className="rounded border border-line px-2 py-0.5" href={q(1, 12)}>
           Цялата {year}
         </Link>
+        {view.length > 0 ? (
+          <span className="ml-auto">
+            <ExportLinks report="trial-balance" params={{ from, to }} />
+          </span>
+        ) : null}
       </nav>
       {view.length === 0 ? (
         <EmptyState
@@ -189,9 +145,7 @@ export default async function TrialBalancePage({
           role="status"
           className={`mt-2 text-sm ${reconciled ? 'text-positive' : 'text-negative'}`}
         >
-          {reconciled
-            ? 'Равнява се: дебит = кредит във всяка двойка колони.'
-            : 'НЕ се равнява. Това не трябва да се случва — съобщете на поддръжката.'}
+          {reconciled ? RECONCILED : NOT_RECONCILED}
         </p>
       ) : null}
     </div>

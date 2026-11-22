@@ -19,7 +19,8 @@ const securityHeaders = [
 
 const config: NextConfig = {
   transpilePackages: ['@kantora/db', '@kantora/domain'],
-  serverExternalPackages: ['@node-rs/argon2', 'pg'],
+  // pdfkit reads its own data files and fonts from disk at run time.
+  serverExternalPackages: ['@node-rs/argon2', 'pg', 'pdfkit'],
   poweredByHeader: false,
   // Project rules for AI assistants live in the root CLAUDE.md, not in a generated file.
   agentRules: false,

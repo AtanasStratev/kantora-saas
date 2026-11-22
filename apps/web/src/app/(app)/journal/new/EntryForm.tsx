@@ -7,14 +7,24 @@ import {
   parseQuickDate,
   type PeriodContext,
 } from '@kantora/domain';
+import * as RD from '@radix-ui/react-dialog';
+import { Command } from 'cmdk';
 import Decimal from 'decimal.js';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Button, ErrorText, Kbd, inputClass } from '@/components/ui';
-import type { AccountRow } from '@/lib/ledger-data';
-import { postEntry } from '../../ledger-actions';
+import type { AccountRow, TemplateRow } from '@/lib/ledger-data';
+import { postEntry, saveTemplate } from '../../ledger-actions';
 
-type Row = { accountText: string; accountId: string; debit: string; credit: string; memo: string };
+// hint: the side a template expects when it carries no fixed amount.
+type Row = {
+  accountText: string;
+  accountId: string;
+  debit: string;
+  credit: string;
+  memo: string;
+  hint?: 'D' | 'C';
+};
 const emptyRow = (): Row => ({ accountText: '', accountId: '', debit: '', credit: '', memo: '' });
 const COLS = 4; // account, debit, credit, memo
 
@@ -30,10 +40,12 @@ function amountOf(text: string): Decimal | null {
  */
 export function EntryForm({
   accounts,
+  templates,
   period,
   defaultDate,
 }: {
   accounts: AccountRow[];
+  templates: TemplateRow[];
   period: PeriodContext & { label: string };
   defaultDate: string;
 }) {
@@ -48,6 +60,9 @@ export function EntryForm({
   const [problems, setProblems] = useState<string[]>([]);
   const [done, setDone] = useState('');
   const [busy, setBusy] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [note, setNote] = useState('');
   const cells = useRef<(HTMLInputElement | null)[][]>([]);
 
   const postable = useMemo(() => accounts.filter((a) => a.isPostable && a.isActive), [accounts]);
@@ -84,6 +99,48 @@ export function EntryForm({
   function focusCell(row: number, col: number) {
     pendingFocus.current = [row, col];
     setFocusTick((t) => t + 1);
+  }
+
+  const isEmpty = (r: Row) => !r.accountText && !r.debit && !r.credit && !r.memo;
+
+  /** Adds the template's lines after the rows already typed; nothing typed is lost. */
+  function applyTemplate(t: TemplateRow) {
+    setPicker(false);
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const skipped: string[] = [];
+    const added: Row[] = [];
+    for (const l of t.lines) {
+      const a = byId.get(l.accountId);
+      if (!a || !a.isActive || !a.isPostable) {
+        skipped.push(a ? a.code : '?');
+        continue;
+      }
+      const amount = l.amount ? formatAmount(l.amount) : '';
+      added.push({
+        accountText: `${a.code} ${a.name}`,
+        accountId: a.id,
+        debit: l.side === 'D' ? amount : '',
+        credit: l.side === 'C' ? amount : '',
+        memo: l.description,
+        ...(l.amount ? {} : { hint: l.side }),
+      });
+    }
+    const kept = rows.filter((r) => !isEmpty(r));
+    setRows([...kept, ...added, emptyRow()]);
+    if (!description.trim()) setDescription(t.description || t.name);
+    setNote(
+      `Добавени са редовете от шаблона „${t.name}“.` +
+        (skipped.length
+          ? ` Пропуснати (неактивни или групови сметки): ${skipped.join(', ')}.`
+          : ''),
+    );
+    // Cursor to the first amount still to be typed, else to the first added row.
+    const firstHint = added.findIndex((r) => r.hint);
+    if (firstHint >= 0) {
+      focusCell(kept.length + firstHint, added[firstHint]?.hint === 'C' ? 2 : 1);
+    } else {
+      focusCell(kept.length, 1);
+    }
   }
 
   function update(row: number, patch: Partial<Row>) {
@@ -248,7 +305,17 @@ export function EntryForm({
   const balanced = !totals.invalid && totals.diff.isZero() && !totals.d.isZero();
 
   return (
-    <div onKeyDown={(e) => e.ctrlKey && e.key === 'Enter' && (e.preventDefault(), void submit())}>
+    <div
+      onKeyDown={(e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+          e.preventDefault();
+          void submit();
+        } else if (e.key === 'F4' && !e.altKey && !e.ctrlKey) {
+          e.preventDefault();
+          setPicker(true);
+        }
+      }}
+    >
       <div className="mb-4 flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1 text-xs text-fg-muted">
           Дата ({period.label})
@@ -364,6 +431,9 @@ export function EntryForm({
                       }}
                       aria-label={`Ред ${i + 1}, ${f === 'debit' ? 'дебит' : 'кредит'}`}
                       inputMode="decimal"
+                      placeholder={
+                        r.hint === (f === 'debit' ? 'D' : 'C') && !r[f] ? 'сума' : undefined
+                      }
                       aria-invalid={amountOf(r[f]) === null ? true : undefined}
                       className={`${inputClass} w-full text-right tabular-nums`}
                       value={r[f]}
@@ -427,6 +497,12 @@ export function EntryForm({
         <Button inline disabled={busy} onClick={() => void submit()}>
           {busy ? 'Осчетоводяване…' : 'Осчетоводи'} <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
         </Button>
+        <Button inline variant="secondary" onClick={() => setPicker(true)}>
+          Шаблон <Kbd>F4</Kbd>
+        </Button>
+        <Button inline variant="secondary" onClick={() => setSaveOpen(true)}>
+          Запази като шаблон…
+        </Button>
         <span className="text-xs text-fg-muted">
           <Kbd>Enter</Kbd> следваща клетка · <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> редове · <Kbd>Ctrl</Kbd>+<Kbd>D</Kbd> копира реда отгоре · <Kbd>Ctrl</Kbd>+
@@ -434,6 +510,11 @@ export function EntryForm({
         </span>
       </div>
       <div className="mt-3">
+        {note ? (
+          <p role="status" className="text-sm text-fg-muted">
+            {note}
+          </p>
+        ) : null}
         {done ? (
           <p role="status" className="text-sm text-positive">
             {done}
@@ -448,6 +529,159 @@ export function EntryForm({
           </ul>
         ) : null}
       </div>
+      <TemplatePicker
+        open={picker}
+        templates={templates}
+        onClose={() => setPicker(false)}
+        onPick={applyTemplate}
+      />
+      <SaveTemplateDialog
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        defaultName={description}
+        onSave={async (name) => {
+          const r = await saveTemplate({
+            name,
+            description,
+            rows: rows.map((x) => ({
+              accountId: x.accountId,
+              debit: x.debit,
+              credit: x.credit,
+              memo: x.memo,
+            })),
+          });
+          if (r.error !== undefined) {
+            return [r.error, ...('problems' in r && r.problems ? r.problems : [])];
+          }
+          setSaveOpen(false);
+          setNote(`Шаблонът „${name}“ е запазен. Зарежда се с F4.`);
+          router.refresh();
+          return [];
+        }}
+      />
     </div>
+  );
+}
+
+function TemplatePicker({
+  open,
+  templates,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  templates: TemplateRow[];
+  onClose: () => void;
+  onPick: (t: TemplateRow) => void;
+}) {
+  return (
+    <Command.Dialog
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      label="Шаблони на статии"
+      filter={(value, search, keywords) =>
+        matchScore([value, ...(keywords ?? [])].join(' '), search) / 100
+      }
+      overlayClassName="fixed inset-0 z-40 bg-overlay"
+      contentClassName="fixed top-24 left-1/2 z-50 w-[36rem] max-w-[92vw] -translate-x-1/2 rounded border border-line-strong bg-surface-raised text-fg shadow-lg"
+    >
+      <Command.Input
+        placeholder="Търсене на шаблон…"
+        className="w-full border-b border-line bg-transparent px-3 py-2 outline-none"
+      />
+      <Command.List className="max-h-80 overflow-auto p-1">
+        <Command.Empty className="px-3 py-2 text-sm text-fg-muted">
+          {templates.length
+            ? 'Няма такъв шаблон.'
+            : 'Още няма шаблони. Попълнете статия и изберете „Запази като шаблон…“.'}
+        </Command.Empty>
+        {templates.map((t) => (
+          <Command.Item
+            key={t.id}
+            value={`template-${t.id}`}
+            keywords={[t.name, t.description]}
+            onSelect={() => onPick(t)}
+            className="flex cursor-default justify-between rounded px-2 py-1 text-sm data-[selected=true]:bg-surface-selected"
+          >
+            <span>{t.name}</span>
+            <span className="text-xs text-fg-muted">{t.lines.length} реда</span>
+          </Command.Item>
+        ))}
+      </Command.List>
+    </Command.Dialog>
+  );
+}
+
+function SaveTemplateDialog({
+  open,
+  onClose,
+  defaultName,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  defaultName: string;
+  onSave: (name: string) => Promise<string[]>;
+}) {
+  const [name, setName] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  return (
+    <RD.Root open={open} onOpenChange={(o) => !o && onClose()}>
+      <RD.Portal>
+        <RD.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <RD.Content
+          className="fixed top-24 left-1/2 z-50 w-[30rem] max-w-[92vw] -translate-x-1/2 rounded border border-line-strong bg-surface-raised p-4 text-fg shadow-lg"
+          onOpenAutoFocus={() => {
+            setName(defaultName);
+            setErrors([]);
+          }}
+        >
+          <RD.Title className="mb-1 font-semibold">Запазване като шаблон</RD.Title>
+          <RD.Description className="mb-3 text-sm text-fg-muted">
+            Запазват се сметките, страните и сумите. Сума 0 означава „само страната, сумата се
+            въвежда всеки път“.
+          </RD.Description>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setBusy(true);
+              void onSave(name.trim()).then((errs) => {
+                setBusy(false);
+                setErrors(errs);
+              });
+            }}
+          >
+            <label className="flex flex-col gap-1 text-xs text-fg-muted">
+              Име на шаблона
+              <input
+                className={inputClass}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                maxLength={120}
+              />
+            </label>
+            {errors.length ? (
+              <ul role="alert" className="mt-2 list-disc pl-5 text-sm text-negative">
+                {errors.map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <RD.Close asChild>
+                <Button inline variant="secondary" type="button">
+                  Отказ
+                </Button>
+              </RD.Close>
+              <Button inline type="submit" disabled={busy}>
+                {busy ? 'Запазване…' : 'Запази'}
+              </Button>
+            </div>
+          </form>
+        </RD.Content>
+      </RD.Portal>
+    </RD.Root>
   );
 }

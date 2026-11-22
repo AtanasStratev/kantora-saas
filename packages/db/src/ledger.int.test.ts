@@ -420,6 +420,96 @@ describe('roles and isolation', () => {
     );
     expect(seen).toBe(0);
   });
+
+  it('entry templates: accountant saves, read-only only reads, payroll and other offices see nothing', async () => {
+    const acc = await member('accountant');
+    const tplId = await withTenant(app, acc, async (c) => {
+      const t = await c.query<{ id: string; created_by: string }>(
+        `INSERT INTO app.entry_template (office_id, company_id, name) VALUES ($1, $2, 'Наем') RETURNING id, created_by`,
+        [w.owner.officeId, w.owner.companyId],
+      );
+      expect(t.rows[0]!.created_by).toBe(acc.userId);
+      const id = t.rows[0]!.id;
+      await c.query(
+        `INSERT INTO app.entry_template_line (office_id, company_id, template_id, line_no, account_id, side, amount)
+         VALUES ($1, $2, $3, 1, $4, 'D', 500.00), ($1, $2, $3, 2, $5, 'C', NULL)`,
+        [w.owner.officeId, w.owner.companyId, id, w.acc['601'], w.acc['401']],
+      );
+      return id;
+    });
+    // Same name twice in one company is refused.
+    await expect(
+      withTenant(app, acc, (c) =>
+        c.query(
+          `INSERT INTO app.entry_template (office_id, company_id, name) VALUES ($1, $2, 'Наем')`,
+          [w.owner.officeId, w.owner.companyId],
+        ),
+      ),
+    ).rejects.toThrow(/duplicate key/);
+    // A line pointing at an account of another company is refused by the foreign key.
+    const other = await setUpCompany();
+    await expect(
+      withTenant(app, acc, (c) =>
+        c.query(
+          `INSERT INTO app.entry_template_line (office_id, company_id, template_id, line_no, account_id, side)
+           VALUES ($1, $2, $3, 3, $4, 'D')`,
+          [w.owner.officeId, w.owner.companyId, tplId, other.acc['601']],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/);
+
+    const ro = await member('read_only');
+    const roSees = await withTenant(
+      app,
+      ro,
+      async (c) => (await c.query('SELECT 1 FROM app.entry_template_line')).rowCount,
+    );
+    expect(roSees).toBe(2);
+    await expect(
+      withTenant(app, ro, (c) =>
+        c.query(
+          `INSERT INTO app.entry_template (office_id, company_id, name) VALUES ($1, $2, 'Друг')`,
+          [w.owner.officeId, w.owner.companyId],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    const roDeleted = await withTenant(
+      app,
+      ro,
+      async (c) =>
+        (await c.query('DELETE FROM app.entry_template WHERE id = $1', [tplId])).rowCount,
+    );
+    expect(roDeleted).toBe(0);
+
+    const trz = await member('payroll');
+    const trzSees = await withTenant(
+      app,
+      trz,
+      async (c) => (await c.query('SELECT 1 FROM app.entry_template')).rowCount,
+    );
+    expect(trzSees).toBe(0);
+    const foreign = await withTenant(
+      app,
+      { userId: other.owner.userId, officeId: other.owner.officeId, companyId: w.owner.companyId },
+      async (c) => (await c.query('SELECT 1 FROM app.entry_template')).rowCount,
+    );
+    expect(foreign).toBe(0);
+
+    // Deleting the template removes its lines, and both are in the audit log.
+    await withTenant(app, acc, (c) =>
+      c.query('DELETE FROM app.entry_template WHERE id = $1', [tplId]),
+    );
+    const audit = await admin.query<{ table_name: string; n: string }>(
+      `SELECT table_name, count(*)::text AS n FROM app.audit_log
+       WHERE table_name IN ('entry_template', 'entry_template_line') AND company_id = $1
+       GROUP BY table_name ORDER BY table_name`,
+      [w.owner.companyId],
+    );
+    expect(audit.rows).toEqual([
+      { table_name: 'entry_template', n: '2' },
+      { table_name: 'entry_template_line', n: '4' },
+    ]);
+  });
 });
 
 describe('reconciliation: trial balance = journal (PROMPT.md 3.3)', () => {
