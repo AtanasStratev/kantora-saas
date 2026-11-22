@@ -11,6 +11,8 @@ const Env = z
     BETTER_AUTH_SECRET: z.string().min(32, 'BETTER_AUTH_SECRET must be at least 32 characters'),
     // Development/e2e only: multiplies the auth rate limits so repeated test runs do not
     // lock themselves out. Production refuses to start with anything but 1.
+    SMTP_URL: z.string().min(1),
+    MAIL_FROM: z.string().min(3),
     AUTH_RATE_LIMIT_MULTIPLIER: z.coerce.number().int().min(1).max(100).default(1),
   })
   .refine((e) => e.NODE_ENV !== 'production' || e.AUTH_RATE_LIMIT_MULTIPLIER === 1, {
@@ -30,6 +32,8 @@ const BUILD_PLACEHOLDERS: Env = {
   BETTER_AUTH_URL: 'http://build-placeholder.invalid',
   BETTER_AUTH_SECRET: 'build-phase-placeholder-not-a-secret-0000',
   AUTH_RATE_LIMIT_MULTIPLIER: 1,
+  SMTP_URL: 'smtp://build-placeholder.invalid:25',
+  MAIL_FROM: 'build@placeholder.invalid',
 };
 
 export const env: Env =

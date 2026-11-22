@@ -5,6 +5,7 @@ import { nextCookies } from 'better-auth/next-js';
 import { twoFactor } from 'better-auth/plugins';
 import { Pool } from 'pg';
 import { env } from './env';
+import { sendMail, templates } from './mail';
 
 /**
  * Authentication (ADR-0005). Better Auth owns only the `auth` schema and connects with
@@ -40,11 +41,26 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 12,
     maxPasswordLength: 128,
-    // TODO(Phase 1): requireEmailVerification once outgoing e-mail (Mailpit/TEM) is wired.
+    // No sign-in until the e-mail is confirmed: invitations rely on e-mail ownership.
+    requireEmailVerification: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendMail({ to: user.email, ...templates.resetPassword(user.name, url) });
+    },
+    resetPasswordTokenExpiresIn: 60 * 60,
+    revokeSessionsOnPasswordReset: true,
     password: {
       hash: (password) => hash(password, ARGON2),
       verify: ({ hash: stored, password }) => verify(stored, password),
     },
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendMail({ to: user.email, ...templates.verifyEmail(user.name, url) });
+    },
+    sendOnSignUp: true,
+    sendOnSignIn: true, // re-sends the link when an unverified user tries to sign in
+    autoSignInAfterVerification: true,
+    expiresIn: 60 * 60 * 24,
   },
   session: {
     expiresIn: 60 * 60 * 12, // 12 h
@@ -59,6 +75,9 @@ export const auth = betterAuth({
       '/sign-in/email': { window: 60, max: 5 * RL },
       '/sign-up/email': { window: 60, max: 3 * RL },
       '/two-factor/*': { window: 60, max: 5 * RL },
+      // Mail-sending endpoints: keep them from being used to spam an inbox.
+      '/request-password-reset': { window: 60, max: 3 * RL },
+      '/send-verification-email': { window: 60, max: 3 * RL },
     },
   },
   plugins: [twoFactor({ issuer: 'Кантора' }), nextCookies()],

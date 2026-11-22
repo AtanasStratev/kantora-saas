@@ -1,49 +1,61 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Button, ErrorText, Field } from '@/components/ui';
 import { authClient, authErrorMessage } from '@/lib/auth-client';
-import { registerOffice } from '../actions';
 
 export function RegisterForm({ invite, email }: { invite?: string; email?: string }) {
-  const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState('');
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
     const form = new FormData(e.currentTarget);
     const password = String(form.get('password'));
+    const office = String(form.get('office') ?? '').trim();
+    if (!invite && office.length < 2) {
+      setError('Въведете име на кантората.');
+      return;
+    }
     if (password !== String(form.get('password2'))) {
       setError('Двете пароли не съвпадат.');
       return;
     }
+    // After the e-mail link: mandatory 2FA, then the invitation or office creation.
+    const next = invite ? `/invite/${invite}` : `/?office=${encodeURIComponent(office)}`;
     setBusy(true);
+    const address = String(form.get('email'));
     const { error } = await authClient.signUp.email({
       name: String(form.get('name')),
-      email: String(form.get('email')),
+      email: address,
       password,
+      callbackURL: `/2fa/setup?next=${encodeURIComponent(next)}`,
     });
+    setBusy(false);
     if (error) {
-      setBusy(false);
       setError(authErrorMessage(error));
       return;
     }
-    if (invite) {
-      setBusy(false);
-      router.push(`/2fa/setup?next=${encodeURIComponent(`/invite/${invite}`)}`);
-      return;
-    }
-    const result = await registerOffice(String(form.get('office')));
-    setBusy(false);
-    if (result.error) {
-      // The account exists; the home page offers to create the office again.
-      setError(result.error);
-      return;
-    }
-    router.push('/2fa/setup');
+    setSentTo(address);
+  }
+
+  if (sentTo) {
+    return (
+      <div role="status">
+        <p className="mb-3 text-sm">
+          Изпратихме връзка за потвърждение на <strong>{sentTo}</strong>.
+        </p>
+        <p className="mb-4 text-sm text-fg-muted">
+          Отворете я, за да продължите (валидна 24 часа). Ако не виждате имейла, проверете папката
+          за спам или опитайте да влезете: ще изпратим нова връзка.
+        </p>
+        <Link href="/login" className="text-accent underline">
+          Към входа
+        </Link>
+      </div>
+    );
   }
 
   return (

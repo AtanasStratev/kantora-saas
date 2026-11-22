@@ -1,5 +1,5 @@
 'use server';
-import { can, isRole, type Role } from '@kantora/domain';
+import { can, isRole, ROLE_LABEL, type Role } from '@kantora/domain';
 import { withTenant } from '@kantora/db';
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseError } from 'pg';
@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getAppContext } from '@/lib/context';
 import { appPool } from '@/lib/db';
 import { env } from '@/lib/env';
+import { sendMail, templates } from '@/lib/mail';
 
 type Result = { error?: string };
 
@@ -35,7 +36,7 @@ const Invite = z.object({
 export async function createInvitation(input: {
   email: string;
   role: string;
-}): Promise<Result & { link?: string }> {
+}): Promise<Result & { link?: string; mailed?: boolean }> {
   const owner = await ownerContext();
   if (!owner) return { error: 'Само собственикът на кантората кани потребители.' };
   const parsed = Invite.safeParse(input);
@@ -53,7 +54,22 @@ export async function createInvitation(input: {
     return dbError(err);
   }
   // The token is returned once and never stored; only its hash is in the database.
-  return { link: `${env.BETTER_AUTH_URL}/invite/${token}` };
+  const link = `${env.BETTER_AUTH_URL}/invite/${token}`;
+  let mailed = true;
+  try {
+    await sendMail({
+      to: parsed.data.email,
+      ...templates.invitation(
+        owner.ctx.office?.name ?? '',
+        ROLE_LABEL[parsed.data.role as Role],
+        link,
+      ),
+    });
+  } catch {
+    // The invitation exists; the owner can still copy the link from the screen.
+    mailed = false;
+  }
+  return { link, mailed };
 }
 
 export async function revokeInvitation(invitationId: string): Promise<Result> {

@@ -52,6 +52,11 @@ export function LoginForm({ next }: { next: string }) {
           Регистрирайте кантора
         </Link>
       </p>
+      <p className="mt-2 text-center text-xs">
+        <Link href="/forgot-password" className="text-accent underline">
+          Забравена парола?
+        </Link>
+      </p>
     </form>
   );
 }

@@ -18,6 +18,11 @@ export function authErrorMessage(error: {
     return 'Твърде много опити. Изчакайте минута и опитайте отново.';
   }
   switch (error.code) {
+    case 'EMAIL_NOT_VERIFIED':
+      return 'Имейлът още не е потвърден. Изпратихме ви нова връзка — отворете я и влезте отново.';
+    case 'INVALID_TOKEN':
+    case 'TOKEN_EXPIRED':
+      return 'Връзката е невалидна или изтекла. Поискайте нова.';
     case 'INVALID_EMAIL_OR_PASSWORD':
       return 'Грешен имейл или парола.';
     case 'USER_ALREADY_EXISTS':

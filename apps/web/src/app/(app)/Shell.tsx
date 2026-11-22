@@ -140,7 +140,9 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           <button type="button" onClick={() => setHelp(true)} className="underline">
             Клавиши <Keys id="help" />
           </button>
-          <span>{ctx.user.name}</span>
+          <Link href="/account" className="underline" title="Профил и активни сесии">
+            {ctx.user.name}
+          </Link>
         </span>
       </header>
 
@@ -385,6 +387,14 @@ function Palette({
                   Тема: {THEME_LABEL[t]}
                 </Command.Item>
               ))}
+              <Command.Item
+                value="action-account"
+                keywords={['профил', 'сесии', 'устройства', 'парола']}
+                onSelect={() => onNavigate('/account')}
+                className={itemCls}
+              >
+                Профил и активни сесии
+              </Command.Item>
               <Command.Item
                 value="action-help"
                 keywords={['клавиши', 'помощ']}

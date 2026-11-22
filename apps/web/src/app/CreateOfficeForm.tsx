@@ -1,11 +1,13 @@
 'use client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Button, ErrorText, Field } from '@/components/ui';
 import { registerOffice } from './actions';
 
+/** Creates the user's office. The name typed at registration arrives as ?office=… */
 export function CreateOfficeForm() {
   const router = useRouter();
+  const suggested = useSearchParams().get('office') ?? '';
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -18,13 +20,14 @@ export function CreateOfficeForm() {
       setError(result.error);
       return;
     }
+    router.replace('/');
     router.refresh();
   }
 
   return (
     <form onSubmit={onSubmit} noValidate className="mb-4">
       <ErrorText>{error}</ErrorText>
-      <Field label="Име на кантората" id="office" required autoFocus />
+      <Field label="Име на кантората" id="office" required autoFocus defaultValue={suggested} />
       <Button type="submit" disabled={busy}>
         Създай кантора
       </Button>

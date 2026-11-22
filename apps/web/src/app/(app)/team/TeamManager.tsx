@@ -155,6 +155,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
   const [role, setRole] = useState<Role>('accountant');
   const [error, setError] = useState('');
   const [link, setLink] = useState('');
+  const [mailed, setMailed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -173,6 +174,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
       return;
     }
     setLink(r.link ?? '');
+    setMailed(r.mailed === true);
     form.reset();
     onDone();
   }
@@ -193,8 +195,10 @@ function InviteForm({ onDone }: { onDone: () => void }) {
       {link ? (
         <div className="mt-4 rounded border border-positive p-2 text-xs">
           <p className="mb-1">
-            Изпратете тази връзка на поканения (валидна 7 дни, за еднократна употреба). Тя се
-            показва само сега.
+            {mailed
+              ? 'Поканата е изпратена по имейл. Ако не стигне, изпратете тази връзка сами'
+              : 'Имейлът не можа да се изпрати. Изпратете тази връзка на поканения сами'}{' '}
+            (валидна 7 дни, за еднократна употреба). Показва се само сега.
           </p>
           <code className="block select-all break-all" data-testid="invite-link">
             {link}

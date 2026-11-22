@@ -1,5 +1,5 @@
 // Demo data for local development (PROMPT.md Фаза 1: "една команда за демо данни").
-// Requires the app running (pnpm dev): users are created through the real sign-up and
+// Requires the app and Mailpit running (pnpm dev): users are created through the real sign-up and
 // 2FA endpoints, so they are exactly like real accounts. Business data goes through the
 // same database functions and RLS as the app (role kantora_app), never around them.
 //
@@ -9,6 +9,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import pg from 'pg';
 import { totp } from './dev-totp.mjs';
+import { latestLink } from './mailpit.mjs';
 
 process.loadEnvFile('.env');
 const BASE = process.env.BETTER_AUTH_URL ?? 'http://localhost:3000';
@@ -18,16 +19,21 @@ if (!PASSWORD || PASSWORD.length < 12) {
   process.exit(1);
 }
 
+// Optional DEMO_TAG creates an additional, independent demo office (e.g. DEMO_TAG=2).
+const TAG = (process.env.DEMO_TAG ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+const mail = (local) => `${local}${TAG ? `-${TAG}` : ''}@kantora.test`;
+const OFFICE = `Демо кантора${TAG ? ` ${TAG}` : ''}`;
+
 const PEOPLE = [
-  { key: 'owner', email: 'demo-owner@kantora.test', name: 'Демо Собственик', role: 'owner' },
-  { key: 'chief', email: 'demo-chief@kantora.test', name: 'Демо Главен', role: 'chief_accountant' },
+  { key: 'owner', email: mail('demo-owner'), name: 'Демо Собственик', role: 'owner' },
+  { key: 'chief', email: mail('demo-chief'), name: 'Демо Главен', role: 'chief_accountant' },
   {
     key: 'accountant',
-    email: 'demo-accountant@kantora.test',
+    email: mail('demo-accountant'),
     name: 'Демо Счетоводител',
     role: 'accountant',
   },
-  { key: 'payroll', email: 'demo-trz@kantora.test', name: 'Демо ТРЗ', role: 'payroll' },
+  { key: 'payroll', email: mail('demo-trz'), name: 'Демо ТРЗ', role: 'payroll' },
 ];
 const COMPANIES = [
   'Алфа Строй ООД',
@@ -64,11 +70,17 @@ async function api(jar, path, body) {
 
 async function createUser(p) {
   const jar = new Jar();
+  const sentAfter = Date.now() - 1000;
   const up = await api(jar, '/sign-up/email', { name: p.name, email: p.email, password: PASSWORD });
   if (up.status !== 200) {
     if (up.data?.code?.startsWith('USER_ALREADY_EXISTS')) return null;
     throw new Error(`sign-up ${p.email}: ${up.status} ${JSON.stringify(up.data)}`);
   }
+  // Confirm the e-mail through the link Mailpit captured (signs the user in).
+  const link = await latestLink(p.email, 'Потвърдете имейла', { after: sentAfter });
+  const verified = await fetch(link, { redirect: 'manual', headers: { cookie: jar.header() } });
+  jar.take(verified);
+  if (verified.status >= 400) throw new Error(`verify ${p.email}: ${verified.status}`);
   const en = await api(jar, '/two-factor/enable', { password: PASSWORD });
   if (en.status !== 200)
     throw new Error(`2FA enable ${p.email}: ${en.status} ${JSON.stringify(en.data)}`);
@@ -105,6 +117,19 @@ try {
     throw new Error(`Приложението не отговаря на ${BASE}. Пуснете първо: pnpm dev`);
   });
 
+  // Sign-up answers "OK" even for an existing e-mail (no account probing), so check the
+  // database directly (developer-only script; schema owner connection).
+  const admin = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await admin.connect();
+  const exists = await admin.query('SELECT 1 FROM auth."user" WHERE email = $1', [PEOPLE[0].email]);
+  await admin.end();
+  if (exists.rowCount) {
+    console.log(
+      `Демо данните вече са създадени (${PEOPLE[0].email} съществува). Нищо не е променено.`,
+    );
+    process.exit(0);
+  }
+
   const users = {};
   for (const p of PEOPLE) {
     const u = await createUser(p);
@@ -118,7 +143,7 @@ try {
 
   const officeId = await as(
     { userId: owner.id },
-    async (c) => (await c.query(`SELECT app.register_office('Демо кантора') AS id`)).rows[0].id,
+    async (c) => (await c.query(`SELECT app.register_office($1) AS id`, [OFFICE])).rows[0].id,
   );
   const ownerCtx = { userId: owner.id, officeId };
 
@@ -179,7 +204,7 @@ try {
   });
 
   mkdirSync('db/dev', { recursive: true });
-  const out = 'db/dev/demo-accounts.local.json';
+  const out = `db/dev/demo-accounts${TAG ? `-${TAG}` : ''}.local.json`;
   writeFileSync(
     out,
     JSON.stringify(
@@ -188,7 +213,7 @@ try {
       2,
     ),
   );
-  console.log(`Демо кантора: ${COMPANIES.length} фирми, ${PEOPLE.length} потребители.`);
+  console.log(`${OFFICE}: ${COMPANIES.length} фирми, ${PEOPLE.length} потребители.`);
   console.log(`Парола: DEV_DEMO_PASSWORD от .env. 2FA тайните са в ${out} (не се качва в Git).`);
   console.log('Текущ код за вход: node scripts/dev-totp.mjs <totpSecret>');
 } finally {
