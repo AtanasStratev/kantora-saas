@@ -17,6 +17,9 @@ import { selectCompany, selectOffice, selectPeriod } from './context-actions';
 const NAV = [
   { href: '/', label: 'Начало', key: 'goHome' as const },
   { href: '/companies', label: 'Фирми', key: 'goCompanies' as const },
+  { href: '/journal', label: 'Статии', key: 'goJournal' as const },
+  { href: '/reports/trial-balance', label: 'Оборотна ведомост', key: 'goTrialBalance' as const },
+  { href: '/accounts', label: 'Сметкоплан', key: 'goAccounts' as const },
   { href: '/parameters', label: 'Параметри', key: 'goParameters' as const },
   { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
 ];
@@ -63,6 +66,13 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
         if (ctx.company) setPalette('period');
         return;
       }
+      // F2 types nothing, so it works from inside a field too, except on the entry screen
+      // itself, where it would throw away what is being typed.
+      if (e.key === 'F2' && !ctrl && !e.altKey && ctx.company) {
+        e.preventDefault();
+        if (pathname !== '/journal/new') go('/journal/new');
+        return;
+      }
       if (isTypingTarget(e.target) || ctrl || e.altKey) return;
       // "?" on any layout: the character itself, or Shift + the physical "/" key.
       if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
@@ -81,6 +91,9 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           KeyD: '/design',
           KeyE: '/team',
           KeyP: '/parameters',
+          KeyJ: '/journal',
+          KeyS: '/accounts',
+          KeyT: '/reports/trial-balance',
         }[e.code];
         if (target) {
           e.preventDefault();
@@ -94,7 +107,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ctx.company, go]);
+  }, [ctx.company, go, pathname]);
 
   async function choose(action: () => Promise<void>) {
     setPalette(null);
@@ -106,14 +119,14 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center gap-4 border-b border-line-strong bg-surface-raised px-4 py-2">
         <span className="font-semibold">Кантора</span>
-        <span className="text-fg-muted" aria-label="Кантора">
-          {ctx.office?.name}
-        </span>
+        <span className="text-fg-muted">{ctx.office?.name}</span>
         <button
           type="button"
           onClick={() => setPalette('company')}
           className="rounded border border-line px-2 py-0.5"
-          aria-label="Текуща фирма. Смяна с Ctrl+Shift+K"
+          // The accessible name starts with the visible text (WCAG 2.5.3).
+          aria-label={`${ctx.company ? ctx.company.name : 'Изберете фирма'}: смяна на фирма`}
+          aria-keyshortcuts="Control+Shift+K"
         >
           {ctx.company ? ctx.company.name : 'Изберете фирма'}
         </button>
@@ -122,7 +135,8 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
             type="button"
             onClick={() => setPalette('period')}
             className="rounded border border-line px-2 py-0.5"
-            aria-label="Текущ период. Смяна с Alt+P"
+            aria-label={`${ctx.period ? periodLabel(ctx.period) : 'Няма период'}: смяна на период`}
+            aria-keyshortcuts="Alt+P"
           >
             {ctx.period ? periodLabel(ctx.period) : 'Няма период'}
           </button>
@@ -157,10 +171,12 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
                 <Link
                   href={n.href}
                   aria-current={pathname === n.href ? 'page' : undefined}
-                  className="flex justify-between rounded px-2 py-1 aria-[current=page]:bg-surface-selected"
+                  className="flex justify-between gap-2 rounded px-2 py-1 aria-[current=page]:bg-surface-selected"
                 >
                   {n.label}
-                  <span className="text-xs text-fg-muted">{shortcut(n.key).keys.join(' ')}</span>
+                  <span className="shrink-0 whitespace-nowrap text-xs text-fg-muted">
+                    {shortcut(n.key).keys.join(' ')}
+                  </span>
                 </Link>
               </li>
             ))}

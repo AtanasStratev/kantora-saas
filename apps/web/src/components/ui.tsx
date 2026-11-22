@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import type { ComponentProps, InputHTMLAttributes, ReactNode } from 'react';
 
 /*
  * Token-based primitives (docs/design-system.md). Colors come ONLY from semantic tokens.
@@ -74,7 +74,7 @@ export function Button({
   inline = false,
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; inline?: boolean }) {
+}: ComponentProps<'button'> & { variant?: ButtonVariant; inline?: boolean }) {
   return (
     <button
       className={`${inline ? '' : 'w-full'} rounded px-3 py-1.5 font-medium disabled:opacity-60 ${BUTTON[variant]} ${className}`}

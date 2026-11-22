@@ -13,6 +13,10 @@ export type ShortcutId =
   | 'goCompanies'
   | 'goTeam'
   | 'goParameters'
+  | 'goJournal'
+  | 'goAccounts'
+  | 'goTrialBalance'
+  | 'newEntry'
   | 'goDesign';
 
 export type Shortcut = {
@@ -41,6 +45,22 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['g', 'e'],
     sequence: true,
     label: 'Към екипа (собственик)',
+    group: 'Навигация',
+  },
+  { id: 'newEntry', keys: ['F2'], label: 'Нова статия', group: 'Общи' },
+  { id: 'goJournal', keys: ['g', 'j'], sequence: true, label: 'Към статиите', group: 'Навигация' },
+  {
+    id: 'goAccounts',
+    keys: ['g', 's'],
+    sequence: true,
+    label: 'Към сметкоплана',
+    group: 'Навигация',
+  },
+  {
+    id: 'goTrialBalance',
+    keys: ['g', 't'],
+    sequence: true,
+    label: 'Към оборотната ведомост',
     group: 'Навигация',
   },
   {
