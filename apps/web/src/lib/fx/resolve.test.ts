@@ -12,7 +12,9 @@ function world(today: string, bnb: Record<string, BnbParse>, db: Record<string, 
     today,
     stored: async (d) => {
       const s = saved[d] ?? db[d];
-      return s ? { status: s, rates: s === 'published' ? [usd('1.1')] : [] } : undefined;
+      return s
+        ? { status: s, rates: s === 'published' ? [usd('1.1')] : [], source: 'bnb', rateDate: d }
+        : undefined;
     },
     fetchDay: async (d) => {
       fetched.push(d);

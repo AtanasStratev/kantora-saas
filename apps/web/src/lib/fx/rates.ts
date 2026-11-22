@@ -3,19 +3,34 @@ import {
   bnbXmlUrl,
   convertBgnToEur,
   convertWithBnbRate,
+  ECB_90D_URL,
+  ECB_HIST_URL,
+  ecbRatesFor,
   eraOf,
   parseBnbXml,
+  parseEcbCsv,
+  parseEcbXml,
   type BnbParse,
   type BnbRate,
+  type EcbParse,
 } from '@kantora/domain';
 import { withUser } from '@kantora/db';
+import { strFromU8, unzipSync } from 'fflate';
 import { appPool } from '../db';
-import { resolveDay, type DayStatus, type ResolvedDay } from './resolve';
+import {
+  addDays,
+  resolveDay,
+  type DayStatus,
+  type FxSource,
+  type ResolvedDay,
+  type StoredDay,
+} from './resolve';
 
 /**
- * BNB rates on demand: read from the database, and only when a day is missing, fetched
- * once from bnb.bg and stored (app.store_bnb_rates). The request to the BNB carries no
- * user or company data: only the date.
+ * Central rates on demand (ADR-0012): read from the database; when a day is missing, from
+ * 2026 the ECB reference rates (equal to the BNB publication, verified), with the BNB as
+ * fallback; until 2025 the BNB only. Fetched once and stored. Requests carry no user or
+ * company data, only the date.
  */
 export const todaySofia = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Sofia' }).format(new Date());
@@ -63,48 +78,142 @@ async function fetchOnce(date: string): Promise<BnbParse> {
   }
 }
 
-export async function bnbDay(userId: string, date: string): Promise<ResolvedDay> {
+function stored(userId: string, d: string): Promise<StoredDay | undefined> {
+  return withUser(appPool, userId, async (c) => {
+    const day = await c.query<{ status: DayStatus; source: FxSource; source_date: string | null }>(
+      `SELECT status, source, to_char(source_date, 'YYYY-MM-DD') AS source_date
+       FROM app.exchange_rate_day WHERE rate_date = $1`,
+      [d],
+    );
+    const row = day.rows[0];
+    if (!row) return undefined;
+    const r = await c.query<{ currency: string; kind: string; rate: string; units: number }>(
+      `SELECT currency, kind, rate::text, units FROM app.exchange_rate
+       WHERE rate_date = $1 ORDER BY currency`,
+      [d],
+    );
+    const rates: BnbRate[] = r.rows.map((x) => ({
+      currency: x.currency,
+      quote:
+        x.kind === 'per_eur'
+          ? { kind: 'per_eur', rate: x.rate }
+          : { kind: 'bgn_per_units', rate: x.rate, units: x.units },
+    }));
+    return { status: row.status, rates, source: row.source, rateDate: row.source_date ?? d };
+  });
+}
+
+function save(
+  userId: string,
+  d: string,
+  status: DayStatus,
+  source: FxSource,
+  url: string,
+  sourceDate: string | null,
+  rates: BnbRate[],
+): Promise<void> {
+  return withUser(appPool, userId, async (c) => {
+    await c.query('SELECT app.store_fx_rates($1, $2, $3, $4, $5, $6)', [
+      d,
+      status,
+      source,
+      url,
+      sourceDate,
+      JSON.stringify(
+        rates.map((r) => ({
+          currency: r.currency,
+          kind: r.quote.kind,
+          rate: r.quote.rate,
+          units: r.quote.kind === 'bgn_per_units' ? r.quote.units : 1,
+        })),
+      ),
+    ]);
+  });
+}
+
+// ECB files: kept in memory for 30 minutes so that several dates cost one download.
+const ECB_TTL_MS = 30 * 60_000;
+const ecbCache = new Map<string, { at: number; parsed: EcbParse }>();
+async function ecbFile(url: string): Promise<EcbParse> {
+  const hit = ecbCache.get(url);
+  if (hit && Date.now() - hit.at < ECB_TTL_MS) return hit.parsed;
+  const parsed = await throttled(async (): Promise<EcbParse> => {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Kantora/1.0 (exchange rates)' },
+        signal: AbortSignal.timeout(30_000),
+        cache: 'no-store',
+      });
+      if (!res.ok) return { ok: false, message: `ЕЦБ отговори с грешка ${res.status}.` };
+      if (url.endsWith('.zip')) {
+        const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+        const csv = files['eurofxref-hist.csv'];
+        return csv ? parseEcbCsv(strFromU8(csv)) : { ok: false, message: 'Празен архив от ЕЦБ.' };
+      }
+      return parseEcbXml(await res.text());
+    } catch {
+      return { ok: false, message: 'Сайтът на ЕЦБ не отговаря.' };
+    }
+  });
+  if (parsed.ok) ecbCache.set(url, { at: Date.now(), parsed });
+  return parsed;
+}
+
+type EcbTry = ResolvedDay | { ok: false; fallback: true };
+
+/** The ECB rates for a euro-era date, stored under that date with their ECB day. */
+async function fromEcb(userId: string, date: string, today: string): Promise<EcbTry> {
+  // The 90-day file is small; older dates need the full history (about 650 KB).
+  const urls = date >= addDays(today, -80) ? [ECB_90D_URL, ECB_HIST_URL] : [ECB_HIST_URL];
+  for (const url of urls) {
+    const file = await ecbFile(url);
+    if (!file.ok) return { ok: false, fallback: true };
+    const r = ecbRatesFor(file.days, date, today);
+    if (r.ok) {
+      await save(userId, date, 'published', 'ecb', url, r.sourceDate, r.rates);
+      return {
+        ok: true,
+        requested: date,
+        rateDate: r.sourceDate,
+        era: 'EUR',
+        rates: r.rates,
+        source: 'ecb',
+      };
+    }
+    if (r.reason === 'not_yet') {
+      const bg = date.split('-').reverse().join('.');
+      return {
+        ok: false,
+        message: `Курсовете за ${bg} още не са публикувани (ЕЦБ около 16:00 ч., БНБ около 17:00 ч.).`,
+      };
+    }
+  }
+  return { ok: false, fallback: true };
+}
+
+export async function fxDay(userId: string, date: string): Promise<ResolvedDay> {
+  const today = todaySofia();
+  const own = await stored(userId, date);
+  if (own?.status === 'published') {
+    return {
+      ok: true,
+      requested: date,
+      rateDate: own.rateDate,
+      era: eraOf(date),
+      rates: own.rates,
+      source: own.source,
+    };
+  }
+  if (!own && eraOf(date) === 'EUR' && date <= today) {
+    const ecb = await fromEcb(userId, date, today);
+    if (!('fallback' in ecb)) return ecb;
+  }
+  // Until 2025, or when the ECB cannot be reached: the BNB, day by day.
   return resolveDay(date, {
-    today: todaySofia(),
+    today,
     fetchDay: fetchFromBnb,
-    stored: (d) =>
-      withUser(appPool, userId, async (c) => {
-        const day = await c.query<{ status: DayStatus }>(
-          'SELECT status FROM app.exchange_rate_day WHERE rate_date = $1',
-          [d],
-        );
-        const status = day.rows[0]?.status;
-        if (!status) return undefined;
-        const r = await c.query<{ currency: string; kind: string; rate: string; units: number }>(
-          `SELECT currency, kind, rate::text, units FROM app.exchange_rate
-           WHERE rate_date = $1 ORDER BY currency`,
-          [d],
-        );
-        const rates: BnbRate[] = r.rows.map((x) => ({
-          currency: x.currency,
-          quote:
-            x.kind === 'per_eur'
-              ? { kind: 'per_eur', rate: x.rate }
-              : { kind: 'bgn_per_units', rate: x.rate, units: x.units },
-        }));
-        return { status, rates };
-      }),
-    save: (d, status, rates) =>
-      withUser(appPool, userId, async (c) => {
-        await c.query('SELECT app.store_bnb_rates($1, $2, $3, $4)', [
-          d,
-          status,
-          bnbXmlUrl(d),
-          JSON.stringify(
-            rates.map((r) => ({
-              currency: r.currency,
-              kind: r.quote.kind,
-              rate: r.quote.rate,
-              units: r.quote.kind === 'bgn_per_units' ? r.quote.units : 1,
-            })),
-          ),
-        ]);
-      }),
+    stored: (d) => stored(userId, d),
+    save: (d, status, rates) => save(userId, d, status, 'bnb', bnbXmlUrl(d), null, rates),
   });
 }
 
@@ -119,6 +228,8 @@ export type Conversion =
       ledgerCurrency: 'BGN' | 'EUR';
       /** How it was computed, for the screen: "1000 ÷ 1,0990 (БНБ, 20.11.2026)". */
       rateDate: string | null;
+      /** Where the rate came from (null when no rate is used). */
+      source?: FxSource;
       basis: string;
     }
   | { ok: false; message: string };
@@ -174,7 +285,7 @@ export async function toLedgerCurrency(
       basis: `сума × ${bg(peg)} (фиксиран курс на лева към еврото, паричен съвет, БНБ)`,
     };
   }
-  const day = await bnbDay(userId, date);
+  const day = await fxDay(userId, date);
   if (!day.ok) return day;
   const rate = day.rates.find((r) => r.currency === currency);
   if (!rate) {
@@ -188,6 +299,7 @@ export async function toLedgerCurrency(
     result: convertWithBnbRate(amount, rate.quote).toFixed(2),
     ledgerCurrency: era,
     rateDate: day.rateDate,
+    source: day.source,
     basis:
       rate.quote.kind === 'per_eur'
         ? `сума ÷ ${bg(rate.quote.rate)} (${currency} за 1 евро)`

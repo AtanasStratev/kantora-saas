@@ -173,3 +173,70 @@ describe('lev/euro rate under the currency board (legal_parameter)', () => {
     expect(await v('2026-01-01')).toBeNull(); // from 2026 the books are in euro
   });
 });
+
+describe('ECB-sourced rows (store_fx_rates)', () => {
+  const eur = (currency: string, rate: string) => ({ currency, kind: 'per_eur', rate, units: 1 });
+  const fx = (
+    tx: Tx,
+    userId: string,
+    date: string,
+    status: string,
+    source: string,
+    url: string,
+    sourceDate: string | null,
+    rates: object[],
+  ) =>
+    tx.asApp(userId, 'SELECT app.store_fx_rates($1, $2, $3, $4, $5, $6)', [
+      date,
+      status,
+      source,
+      url,
+      sourceDate,
+      JSON.stringify(rates),
+    ]);
+  const ECB = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml';
+
+  it('stores the rate that applies to a day with its ECB day; refuses inconsistent rows', () =>
+    rolledBack(async (tx) => {
+      const free = (
+        await tx.asAdmin(
+          `SELECT to_char(d, 'YYYY-MM-DD') AS d
+           FROM generate_series(DATE '2026-01-01', (now() AT TIME ZONE 'Europe/Sofia')::date - 1, interval '1 day') d
+           WHERE NOT EXISTS (SELECT 1 FROM app.exchange_rate_day x WHERE x.rate_date = d::date)
+             AND extract(isodow FROM d) < 6
+           ORDER BY d DESC LIMIT 6`,
+        )
+      ).rows.map((r: { d: string }) => r.d);
+      const [d0 = '', d1 = '', d2 = '', d3 = ''] = free;
+      const u = await tx.user();
+      const prev = (d: string) => {
+        const x = new Date(`${d}T12:00:00Z`);
+        x.setUTCDate(x.getUTCDate() - 1);
+        return x.toISOString().slice(0, 10);
+      };
+
+      await fx(tx, u, d0, 'published', 'ecb', ECB, prev(d0), [eur('USD', '1.099')]);
+      const row = await tx.asAdmin(
+        `SELECT source, to_char(source_date, 'YYYY-MM-DD') AS sd FROM app.exchange_rate_day WHERE rate_date = $1`,
+        [d0],
+      );
+      expect(row.rows[0]).toEqual({ source: 'ecb', sd: prev(d0) });
+      // The same rates again from the BNB are accepted (1.0990 = 1.099); different ones not.
+      await fx(tx, u, d0, 'published', 'bnb', 'https://www.bnb.bg/x', null, [eur('USD', '1.0990')]);
+      await expect(
+        fx(tx, u, d0, 'published', 'bnb', 'https://www.bnb.bg/x', null, [eur('USD', '1.1')]),
+      ).rejects.toThrow(/различни данни/);
+
+      const bad = (p: Promise<unknown>) => expect(p).rejects.toThrow();
+      await bad(
+        fx(tx, u, d1, 'published', 'ecb', ECB, d0 > d1 ? d0 : '2099-01-01', [eur('USD', '1.1')]),
+      ); // ECB day after the date
+      await bad(fx(tx, u, d2, 'none', 'ecb', ECB, d2, [])); // ECB rows are always "published"
+      await bad(
+        fx(tx, u, d3, 'published', 'ecb', 'https://evil.example/x', d3, [eur('USD', '1.1')]),
+      );
+      await bad(
+        fx(tx, u, '2025-12-30', 'published', 'ecb', ECB, '2025-12-30', [eur('USD', '1.1')]),
+      ); // lev era
+    }));
+});

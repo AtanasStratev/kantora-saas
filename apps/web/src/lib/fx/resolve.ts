@@ -11,11 +11,19 @@ import { eraOf, type BnbParse, type BnbRate } from '@kantora/domain';
 export const MAX_LOOKBACK_DAYS = 10;
 
 export type DayStatus = 'published' | 'none';
+export type FxSource = 'bnb' | 'ecb';
+/** A stored day; rateDate is the publication used (ECB rows: the ECB day, else the day). */
+export type StoredDay = {
+  status: DayStatus;
+  rates: BnbRate[];
+  source: FxSource;
+  rateDate: string;
+};
 
 export type ResolveDeps = {
   /** Today in Sofia, YYYY-MM-DD. */
   today: string;
-  stored: (date: string) => Promise<{ status: DayStatus; rates: BnbRate[] } | undefined>;
+  stored: (date: string) => Promise<StoredDay | undefined>;
   fetchDay: (date: string) => Promise<BnbParse>;
   save: (date: string, status: DayStatus, rates: BnbRate[]) => Promise<void>;
 };
@@ -26,6 +34,7 @@ export type ResolvedDay =
       requested: string;
       /** The day whose publication is used (earlier than `requested` on a day without one). */
       rateDate: string;
+      source: FxSource;
       era: 'BGN' | 'EUR';
       rates: BnbRate[];
     }
@@ -52,7 +61,7 @@ export async function resolveDay(date: string, deps: ResolveDeps): Promise<Resol
       const p = await deps.fetchDay(d);
       if (p.ok) {
         await deps.save(d, 'published', p.rates);
-        day = { status: 'published', rates: p.rates };
+        day = { status: 'published', rates: p.rates, source: 'bnb', rateDate: d };
       } else if (p.reason === 'no_publication') {
         if (d === deps.today && !isWeekend(d)) {
           return {
@@ -62,13 +71,20 @@ export async function resolveDay(date: string, deps: ResolveDeps): Promise<Resol
         }
         // Today on a weekend: nothing will come today, but it is not stored either.
         if (d !== deps.today) await deps.save(d, 'none', []);
-        day = { status: 'none', rates: [] };
+        day = { status: 'none', rates: [], source: 'bnb', rateDate: d };
       } else {
         return { ok: false, message: p.message };
       }
     }
     if (day.status === 'published') {
-      return { ok: true, requested: date, rateDate: d, era: eraOf(d), rates: day.rates };
+      return {
+        ok: true,
+        requested: date,
+        rateDate: day.rateDate,
+        era: eraOf(date),
+        rates: day.rates,
+        source: day.source,
+      };
     }
   }
   return {

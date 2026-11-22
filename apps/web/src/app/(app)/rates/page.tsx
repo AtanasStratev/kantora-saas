@@ -1,7 +1,7 @@
 import { bnbXmlUrl, formatAmount, formatDate, parseAmount, parseQuickDate } from '@kantora/domain';
 import { EmptyState, inputClass } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { bnbDay, todaySofia, toLedgerCurrency, type Conversion } from '@/lib/fx/rates';
+import { fxDay, todaySofia, toLedgerCurrency, type Conversion } from '@/lib/fx/rates';
 
 /**
  * Курсове на БНБ за дата (ЗСч чл. 5, ал. 1) и преизчисляване на сума в отчетната валута.
@@ -27,7 +27,7 @@ export default async function RatesPage({
     if (p.ok) date = p.value;
     else dateError = p.error;
   }
-  const day = dateError ? null : await bnbDay(ctx.user.id, date);
+  const day = dateError ? null : await fxDay(ctx.user.id, date);
 
   let conversion: Conversion | null = null;
   let amountError = '';
@@ -116,7 +116,9 @@ export default async function RatesPage({
             </span>
             <span className="block text-sm text-fg-muted">
               {conversion.basis}
-              {conversion.rateDate ? ` · курс на БНБ от ${formatDate(conversion.rateDate)}` : ''}
+              {conversion.rateDate
+                ? ` · ${conversion.source === 'ecb' ? 'централен курс (източник ЕЦБ)' : 'курс на БНБ'} от ${formatDate(conversion.rateDate)}`
+                : ''}
             </span>
           </p>
         ) : (
@@ -129,18 +131,36 @@ export default async function RatesPage({
       {day && !day.ok ? <EmptyState title={day.message} next="Изберете друга дата." /> : null}
       {day?.ok ? (
         <>
-          <h2 className="mb-1 font-semibold">Публикация на БНБ от {formatDate(day.rateDate)}</h2>
+          <h2 className="mb-1 font-semibold">
+            Централен курс за {formatDate(day.requested)}
+            {day.rateDate !== day.requested ? `, публикуван на ${formatDate(day.rateDate)}` : ''}
+          </h2>
           {day.rateDate !== day.requested ? (
             <p role="note" className="mb-2 text-sm text-warning">
-              За {formatDate(day.requested)} БНБ няма публикация (почивен ден). Използва се
-              последният публикуван курс, от {formatDate(day.rateDate)} (както изрично изисква ЗДДС,
-              чл. 26, ал. 6).
+              Курсът за {formatDate(day.requested)} е последният публикуван до тази дата, от{' '}
+              {formatDate(day.rateDate)} (почивен ден или празник; така изрично и по ЗДДС, чл. 26,
+              ал. 6).
             </p>
           ) : null}
           <p className="mb-2 text-sm">
-            <a className="text-accent underline" href={bnbXmlUrl(day.rateDate)} rel="noreferrer">
-              Източник: bnb.bg (XML за {formatDate(day.rateDate)})
-            </a>
+            {day.source === 'ecb' ? (
+              <>
+                Източник: референтният курс на ЕЦБ от {formatDate(day.rateDate)}, който БНБ
+                публикува като свой курс (
+                <a
+                  className="text-accent underline"
+                  href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html"
+                  rel="noreferrer"
+                >
+                  ecb.europa.eu
+                </a>
+                )
+              </>
+            ) : (
+              <a className="text-accent underline" href={bnbXmlUrl(day.rateDate)} rel="noreferrer">
+                Източник: bnb.bg (XML за {formatDate(day.rateDate)})
+              </a>
+            )}
           </p>
           <table className="w-full border-collapse text-sm" aria-label="Курсове на БНБ">
             <thead>

@@ -6,3 +6,4 @@ export * from './legal-parameters';
 export * from './journal';
 export * from './templates';
 export * from './fx';
+export * from './ecb';
