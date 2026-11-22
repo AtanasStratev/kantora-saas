@@ -157,3 +157,19 @@ describe('BNB rates storage', () => {
       ).rejects.toThrow();
     }));
 });
+
+describe('lev/euro rate under the currency board (legal_parameter)', () => {
+  it('is 1.95583 from 2000 to 2025 and undefined outside (no guessing)', async () => {
+    const v = async (d: string) =>
+      (
+        await admin.query<{ v: string | null }>(
+          `SELECT app.legal_numeric('bgn_per_eur_currency_board', $1)::text AS v`,
+          [d],
+        )
+      ).rows[0]?.v;
+    expect(await v('2000-01-01')).toBe('1.9558300000');
+    expect(await v('2025-12-31')).toBe('1.9558300000');
+    expect(await v('1999-12-31')).toBeNull(); // the 1999 denomination is not verified yet
+    expect(await v('2026-01-01')).toBeNull(); // from 2026 the books are in euro
+  });
+});

@@ -148,10 +148,27 @@ export async function toLedgerCurrency(
     };
   }
   if (era === 'BGN' && currency === 'EUR') {
+    // Currency board: the BNB rate of the euro was the fixed 1.95583, read from the legal
+    // parameter with its source and validity (no publication = refuse, never a guess).
+    const peg = await withUser(appPool, userId, async (c) => {
+      const r = await c.query<{ v: string | null }>(
+        `SELECT app.legal_numeric('bgn_per_eur_currency_board', $1)::text AS v`,
+        [date],
+      );
+      return r.rows[0]?.v ?? null;
+    });
+    if (!peg) {
+      return {
+        ok: false,
+        message: 'За тази дата няма проверен курс на лева към еврото в програмата.',
+      };
+    }
     return {
-      ok: false,
-      message:
-        'Курсът на еврото към лева за сделки до 31.12.2025 г. още няма проверен източник в програмата (отворен въпрос 3 в docs/legal).',
+      ok: true,
+      result: convertWithBnbRate(amount, { kind: 'bgn_per_units', rate: peg, units: 1 }).toFixed(2),
+      ledgerCurrency: 'BGN',
+      rateDate: null,
+      basis: `сума × ${peg} (фиксиран курс на лева към еврото, паричен съвет, БНБ)`,
     };
   }
   const day = await bnbDay(userId, date);

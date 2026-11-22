@@ -56,9 +56,10 @@ export type BnbQuote =
 /**
  * A foreign-currency amount in the ledger currency with the BNB central rate of the
  * transaction date (ЗСч чл. 5, ал. 1). The published rate is used as it is, without
- * intermediate rounding; the result is rounded to 2 decimals half-up. Rounding of
- * converted amounts is not set by a text we found (ЗВЕРБ чл. 13 covers BGN → EUR only):
- * open question 2 in docs/legal/README.md, pending the pilot's confirmation.
+ * intermediate rounding; the result is rounded to the cent, half up. The law requires
+ * amounts in cents (ЗДДС чл. 26, ал. 2: „в евро и евроцентове“) but sets the method only
+ * for BGN → EUR (ЗВЕРБ чл. 13; Reg. 1103/97 art. 5: nearest cent); the same method is used
+ * here (docs/legal/README.md).
  */
 export function convertWithBnbRate(amount: DecimalInput, quote: BnbQuote): Decimal {
   const a = toDecimal(amount);

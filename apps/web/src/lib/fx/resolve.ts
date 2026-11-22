@@ -3,8 +3,9 @@ import { eraOf, type BnbParse, type BnbRate } from '@kantora/domain';
 /**
  * Which BNB publication applies to a date (ЗСч чл. 5, ал. 1: "централният курс … към
  * датата на сделката"). For a day without a publication (weekend, holiday) the last
- * publication before it is used and the screen says so; open question 1 in
- * docs/legal/README.md, pending the pilot's confirmation. Pure logic: the database and
+ * publication before it is used and the screen says so. ЗДДС чл. 26, ал. 6 (from 2026)
+ * says this explicitly ("по последния обменен курс, публикуван … към момента"); ЗСч has no
+ * text for such days (docs/legal/README.md). Pure logic: the database and
  * the network are passed in, so this is unit-tested without either.
  */
 export const MAX_LOOKBACK_DAYS = 10;

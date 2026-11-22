@@ -7,6 +7,8 @@ import { appPool } from '@/lib/db';
 /** Human names for parameter keys; unknown keys are shown as-is. */
 const LABEL: Record<string, string> = {
   eur_bgn_conversion_rate: 'Фиксиран курс лев/евро (лева за 1 евро)',
+  bgn_per_eur_currency_board:
+    'Курс на лева към еврото при паричния съвет (за сделки в евро до 2025 г.)',
 };
 
 type Row = {

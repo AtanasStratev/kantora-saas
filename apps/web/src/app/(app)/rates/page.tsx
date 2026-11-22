@@ -133,8 +133,8 @@ export default async function RatesPage({
           {day.rateDate !== day.requested ? (
             <p role="note" className="mb-2 text-sm text-warning">
               За {formatDate(day.requested)} БНБ няма публикация (почивен ден). Използва се
-              последната преди нея, от {formatDate(day.rateDate)}. Правилото чака потвърждение от
-              пилота.
+              последният публикуван курс, от {formatDate(day.rateDate)} (както изрично изисква ЗДДС,
+              чл. 26, ал. 6).
             </p>
           ) : null}
           <p className="mb-2 text-sm">
