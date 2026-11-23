@@ -100,12 +100,16 @@ export function toXlsx(t: ReportTable): Uint8Array {
       .map((c, i) => textCell(i, c.header, c.kind === 'amount' ? S.headerAmount : S.header))
       .join(''),
   );
-  for (const data of t.rows) {
+  const strong = new Set(t.strong);
+  for (const [k, data] of t.rows.entries()) {
     r++;
+    const b = strong.has(k);
     row(
       data
         .map((v, i) =>
-          t.columns[i]?.kind === 'amount' ? numCell(i, v, S.amount) : textCell(i, v, S.text),
+          t.columns[i]?.kind === 'amount'
+            ? numCell(i, v, b ? S.boldAmount : S.amount)
+            : textCell(i, v, b ? S.bold : S.text),
         )
         .join(''),
     );

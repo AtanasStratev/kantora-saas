@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@kantora/domain": "workspace:*",
+    "decimal.js": "^10.6.0",
     "pg": "^8.23.1",
     "zod": "^4.6.7"
   },

@@ -16,6 +16,8 @@ export type ShortcutId =
   | 'goJournal'
   | 'goAccounts'
   | 'goTrialBalance'
+  | 'goGeneralLedger'
+  | 'goRegister'
   | 'goRates'
   | 'newEntry'
   | 'entryTemplate'
@@ -69,6 +71,20 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['g', 't'],
     sequence: true,
     label: 'Към оборотната ведомост',
+    group: 'Навигация',
+  },
+  {
+    id: 'goGeneralLedger',
+    keys: ['g', 'l'],
+    sequence: true,
+    label: 'Към главната книга',
+    group: 'Навигация',
+  },
+  {
+    id: 'goRegister',
+    keys: ['g', 'r'],
+    sequence: true,
+    label: 'Към хронологичния регистър',
     group: 'Навигация',
   },
   {

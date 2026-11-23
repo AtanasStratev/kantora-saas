@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
 import { ExportLinks } from '@/components/ExportLinks';
+import { ReportRangeNav } from '@/components/ReportRangeNav';
 import { periodLabel } from '@/lib/period';
 import { monthRange, NOT_RECONCILED, RECONCILED, rangeLabel, trialBalance } from '@/lib/reports';
 
@@ -51,25 +52,9 @@ export default async function TrialBalancePage({
         {rangeLabel(from, to, year)} · в {period.ledgerCurrency} · началните салда са от началото на{' '}
         {year} г.
       </p>
-      <nav aria-label="Период на справката" className="mb-4 flex flex-wrap gap-2 text-sm">
-        <Link
-          className="rounded border border-line px-2 py-0.5"
-          href={q(period.month, period.month)}
-        >
-          {periodLabel(period)}
-        </Link>
-        <Link className="rounded border border-line px-2 py-0.5" href={q(1, period.month)}>
-          От началото на годината
-        </Link>
-        <Link className="rounded border border-line px-2 py-0.5" href={q(1, 12)}>
-          Цялата {year}
-        </Link>
-        {view.length > 0 ? (
-          <span className="ml-auto">
-            <ExportLinks report="trial-balance" params={{ from, to }} />
-          </span>
-        ) : null}
-      </nav>
+      <ReportRangeNav month={period.month} monthLabel={periodLabel(period)} year={year}>
+        {view.length > 0 ? <ExportLinks report="trial-balance" params={{ from, to }} /> : null}
+      </ReportRangeNav>
       {view.length === 0 ? (
         <EmptyState
           title="Няма осчетоводени статии за избрания период"

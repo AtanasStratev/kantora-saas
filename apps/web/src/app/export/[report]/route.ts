@@ -8,9 +8,13 @@ import { periodLabel } from '@/lib/period';
 import {
   accountCard,
   accountCardTable,
+  chronologicalRegister,
+  generalLedger,
+  generalLedgerTable,
   journalList,
   journalTable,
   monthRange,
+  registerTable,
   trialBalance,
   trialBalanceTable,
 } from '@/lib/reports';
@@ -63,6 +67,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ report: 
     const card = await accountCard(tenant, q.data.id, period.id, from, to);
     if (!card.account) return fail(404, 'Сметката не е намерена.');
     table = accountCardTable(card, meta);
+  } else if (report === 'general-ledger') {
+    table = generalLedgerTable(await generalLedger(tenant, period.id, from, to), meta);
+  } else if (report === 'register') {
+    table = registerTable(await chronologicalRegister(tenant, period.id, from, to), meta);
   } else if (report === 'journal') {
     table = journalTable(await journalList(tenant, period.id), {
       ...meta,

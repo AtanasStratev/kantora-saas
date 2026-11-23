@@ -21,6 +21,8 @@ export type ReportTable = {
   subtitle: string;
   columns: Column[];
   rows: string[][];
+  /** Indices into `rows` shown in bold (section headers and subtotals of the general ledger). */
+  strong?: number[];
   total?: string[];
   /** A closing line, e.g. the reconciliation result. */
   note?: string;

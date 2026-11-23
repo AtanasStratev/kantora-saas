@@ -195,12 +195,46 @@ test.describe('ledger, keyboard only', () => {
     await anonymous.dispose();
 
     const cardUrl = await page.getByRole('link', { name: /601/ }).getAttribute('href');
+
+    // General ledger (g l) and chronological register (g r): same turnover as the trial balance.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.locator('body').press('g');
+    await page.locator('body').press('l');
+    await expect(page).toHaveURL(/\/reports\/general-ledger/);
+    await expect(page.getByTestId('gl-total-d')).toHaveText('316,00');
+    await expect(page.getByTestId('gl-total-c')).toHaveText('316,00');
+    const gl601 = page.getByTestId('gl-601');
+    await expect(gl601.getByRole('rowheader')).toContainText('601 Разходи за материали');
+    // 120,50 debit, reversed by 120,50 credit, then 75,00 from the template: 75,00 Дт.
+    await expect(gl601.getByRole('row').last()).toContainText('75,00 Дт');
+    await expect(page.getByRole('status')).toHaveText('Равнява се: общо дебит = общо кредит.');
+    const glPdf = await page.request.get(
+      (await page.getByRole('link', { name: 'PDF' }).getAttribute('href')) ?? '',
+    );
+    expect((await glPdf.body()).subarray(0, 5).toString()).toBe('%PDF-');
+
+    await page.locator('body').press('g');
+    await page.locator('body').press('r');
+    await expect(page).toHaveURL(/\/reports\/register/);
+    await expect(page.getByTestId('reg-total-d')).toHaveText('316,00');
+    await expect(page.getByTestId('reg-total-c')).toHaveText('316,00');
+    await expect(page.getByText('Сторно на статия № 1').first()).toBeVisible();
+    const regXlsx = await page.request.get(
+      (await page.getByRole('link', { name: 'Excel' }).getAttribute('href')) ?? '',
+    );
+    const regSheet = strFromU8(
+      unzipSync(await regXlsx.body())['xl/worksheets/sheet1.xml'] ?? new Uint8Array(),
+    );
+    expect(regSheet).toContain('<v>316.00</v>');
+    expect(regSheet).toContain('Сторно на статия № 1');
     await checkThemes(page, context, {
       'ledger-entry-new': '/journal/new',
       'ledger-journal': '/journal',
       'ledger-entry': entryUrl,
       'ledger-trial-balance': '/reports/trial-balance',
       'ledger-account-card': cardUrl ?? '/reports/trial-balance',
+      'ledger-general-ledger': '/reports/general-ledger',
+      'ledger-register': '/reports/register',
       'ledger-accounts': '/accounts',
       'ledger-templates': '/journal/templates',
     });

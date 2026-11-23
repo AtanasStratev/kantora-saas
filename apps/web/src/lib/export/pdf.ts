@@ -103,13 +103,14 @@ export async function toPdf(t: ReportTable, generatedAt: Date): Promise<Uint8Arr
   y = doc.y + 10;
   drawHeader();
 
-  for (const r of t.rows) {
+  const strong = new Set(t.strong);
+  for (const [k, r] of t.rows.entries()) {
     if (y + ROW_H > bottom()) {
       doc.addPage();
       y = MARGIN;
       drawHeader();
     }
-    drawRow(r, 'R');
+    drawRow(r, strong.has(k) ? 'B' : 'R');
     line(y, 0.2);
   }
   if (t.total) {

@@ -6,7 +6,7 @@ export function ExportLinks({
   report,
   params,
 }: {
-  report: 'trial-balance' | 'account-card' | 'journal';
+  report: 'trial-balance' | 'account-card' | 'journal' | 'general-ledger' | 'register';
   params: Record<string, string | number>;
 }) {
   const href = (format: 'xlsx' | 'pdf') =>

@@ -77,3 +77,14 @@ describe('xlsx writer', () => {
     writeFileSync(join(dir, 'sample.xlsx'), toXlsx(table));
   });
 });
+
+describe('bold rows (general ledger sections)', () => {
+  it('marks only the listed rows bold, text and amounts alike', () => {
+    const sheet = strFromU8(
+      unzipSync(toXlsx({ ...table, strong: [1] }))['xl/worksheets/sheet1.xml'] ?? new Uint8Array(),
+    );
+    expect(sheet).toContain('<c r="A6" t="inlineStr" s="0">');
+    expect(sheet).toContain('<c r="A7" t="inlineStr" s="2">');
+    expect(sheet).toContain('<c r="C7" s="3"><v>1234567890123.45</v></c>');
+  });
+});
