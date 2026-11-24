@@ -24,6 +24,8 @@ const config: NextConfig = {
   poweredByHeader: false,
   // Project rules for AI assistants live in the root CLAUDE.md, not in a generated file.
   agentRules: false,
+  // Import files (ADR-0017) are sent to a server action: up to 10 MB, checked again there.
+  experimental: { serverActions: { bodySizeLimit: '11mb' } },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

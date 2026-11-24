@@ -166,7 +166,7 @@ test.describe('analytics, keyboard only', () => {
       'Равнява се: сборът на редовете е равен на сметката в оборотната ведомост.',
     );
     const xlsx = await page.request.get(
-      (await page.getByRole('link', { name: 'Excel' }).getAttribute('href')) ?? '',
+      (await page.getByRole('link', { name: 'Excel', exact: true }).getAttribute('href')) ?? '',
     );
     const sheet = strFromU8(
       unzipSync(await xlsx.body())['xl/worksheets/sheet1.xml'] ?? new Uint8Array(),

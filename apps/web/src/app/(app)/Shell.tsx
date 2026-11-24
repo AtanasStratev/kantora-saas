@@ -25,6 +25,7 @@ const NAV = [
   { href: '/accounts', label: 'Сметкоплан', key: 'goAccounts' as const },
   { href: '/counterparties', label: 'Контрагенти', key: 'goCounterparties' as const },
   { href: '/cost-objects', label: 'Обекти', key: 'goCostObjects' as const },
+  { href: '/import', label: 'Внос от Excel', key: 'goImport' as const },
   { href: '/rates', label: 'Курсове', key: 'goRates' as const },
   { href: '/parameters', label: 'Параметри', key: 'goParameters' as const },
   { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
@@ -105,6 +106,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           KeyA: '/reports/analytic',
           KeyC: '/counterparties',
           KeyO: '/cost-objects',
+          KeyI: '/import',
           KeyK: '/rates',
         }[e.code];
         if (target) {

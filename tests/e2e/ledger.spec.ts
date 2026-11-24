@@ -144,7 +144,7 @@ test.describe('ledger, keyboard only', () => {
     // Export: the files carry the same figures as the screen.
     await page.goto('/reports/trial-balance');
     await expect(page.getByTestId('tb-total-2')).toHaveText('316,00');
-    const xlsxLink = page.getByRole('link', { name: 'Excel' });
+    const xlsxLink = page.getByRole('link', { name: 'Excel', exact: true });
     await xlsxLink.focus();
     const downloading = page.waitForEvent('download');
     await page.keyboard.press('Enter');
@@ -198,7 +198,7 @@ test.describe('ledger, keyboard only', () => {
     await expect(page.getByTestId('reg-total-c')).toHaveText('316,00');
     await expect(page.getByText('Сторно на статия № 1').first()).toBeVisible();
     const regXlsx = await page.request.get(
-      (await page.getByRole('link', { name: 'Excel' }).getAttribute('href')) ?? '',
+      (await page.getByRole('link', { name: 'Excel', exact: true }).getAttribute('href')) ?? '',
     );
     const regSheet = strFromU8(
       unzipSync(await regXlsx.body())['xl/worksheets/sheet1.xml'] ?? new Uint8Array(),
