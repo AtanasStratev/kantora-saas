@@ -64,7 +64,8 @@ export function reversalLines(lines: readonly EntryLine[]): EntryLine[] {
   return lines.map((l) => ({ ...l, side: l.side === 'D' ? 'C' : 'D' }));
 }
 
-export type PostedLine = EntryLine & { date: string }; // ISO date of the entry
+/** `opening`: an opening balance line (BGN → EUR conversion): always in the opening balance. */
+export type PostedLine = EntryLine & { date: string; opening?: boolean }; // ISO date of the entry
 
 export type TrialBalanceRow = {
   accountCode: string;
@@ -98,7 +99,7 @@ export function trialBalance(lines: readonly PostedLine[], from: string, to: str
     if (l.date > to) continue;
     const a = get(l.accountCode);
     const amt = new D(l.amount);
-    if (l.date < from) {
+    if (l.date < from || l.opening) {
       if (l.side === 'D') a.od = a.od.plus(amt);
       else a.oc = a.oc.plus(amt);
     } else if (l.side === 'D') a.td = a.td.plus(amt);

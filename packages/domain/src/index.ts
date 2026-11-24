@@ -9,3 +9,4 @@ export * from './fx';
 export * from './ecb';
 export * from './analytics';
 export * from './revaluation';
+export * from './euro-conversion';

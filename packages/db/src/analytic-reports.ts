@@ -23,9 +23,9 @@ const fix = (s: { opening: string; debit: string; credit: string }): Sums => {
 const nonZero = (s: Sums) => [s.opening, s.debit, s.credit, s.closing].some((v) => v !== ZERO);
 
 // Signed opening before month $3, turnovers in months $3.., for lines up to month $4.
-const SUMS = `coalesce(sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END) FILTER (WHERE p.month < $3), 0)::text AS opening,
-  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month >= $3), 0)::text AS debit,
-  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month >= $3), 0)::text AS credit`;
+const SUMS = `coalesce(sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END) FILTER (WHERE p.month < $3 OR l.is_opening), 0)::text AS opening,
+  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month >= $3 AND NOT l.is_opening), 0)::text AS debit,
+  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month >= $3 AND NOT l.is_opening), 0)::text AS credit`;
 const LINES_IN_YEAR = `FROM app.journal_line l
   JOIN app.journal_entry e ON e.id = l.entry_id AND e.status = 'posted'
   JOIN app.period p ON p.id = e.period_id
@@ -251,7 +251,7 @@ export async function counterpartyStatement(
        JOIN app.period p ON p.id = e.period_id
        JOIN app.account a ON a.id = l.account_id
        WHERE p.fiscal_year_id = (SELECT fiscal_year_id FROM app.period WHERE id = $1)
-         AND p.month BETWEEN $3 AND $4 AND l.counterparty_id = $2
+         AND p.month BETWEEN $3 AND $4 AND NOT l.is_opening AND l.counterparty_id = $2
        ORDER BY e.entry_date, e.number, l.line_no`,
       [periodId, counterpartyId, from, to],
     );

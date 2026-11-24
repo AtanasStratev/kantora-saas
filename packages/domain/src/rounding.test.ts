@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BGN_PER_EUR, convertBgnToEur, roundHalfUp, toMoneyString } from './rounding';
+import {
+  BGN_PER_EUR,
+  convertBgnToEur,
+  convertBgnToEurWages,
+  roundHalfUp,
+  toMoneyString,
+} from './rounding';
 
 const s = (x: Parameters<typeof toMoneyString>[0]) => toMoneyString(x);
 
@@ -59,5 +65,28 @@ describe('convertBgnToEur (ЗВЕРБ чл. 12–13)', () => {
   it('does not round the rate before dividing (0.01 BGN → 0.01 EUR)', () => {
     // 0.01 / 1.95583 = 0.005113 → third digit 5 → 0.01
     expect(s(convertBgnToEur('0.01'))).toBe('0.01');
+  });
+});
+
+describe('convertBgnToEurWages (ЗВЕРБ чл. 45, ал. 1)', () => {
+  it('golden from the evroto.bg guidelines, т. 4.4: 1024.51 BGN → 523.83 EUR', () => {
+    // 1024.51 / 1.95583 = 523.82364… : third decimal 3 > 0 → up
+    expect(convertBgnToEurWages('1024.51').toFixed(2)).toBe('523.83');
+  });
+
+  it('only the third decimal decides: a zero third decimal leaves the second unchanged', () => {
+    // 0.02 / 1.95583 = 0.01022583…: third decimal 0 → 0.01 (a ceiling would give 0.02)
+    expect(convertBgnToEurWages('0.02').toFixed(2)).toBe('0.01');
+    // 1000.00 / 1.95583 = 511.29188…: third decimal 9 → 511.30
+    expect(convertBgnToEurWages('1000.00').toFixed(2)).toBe('511.30');
+    // exactly 1.00000 stays 1.00
+    expect(convertBgnToEurWages('1.95583').toFixed(2)).toBe('1.00');
+  });
+
+  it('is never below the standard conversion and keeps the sign of a credit balance', () => {
+    for (const v of ['0.01', '10.00', '653.96', '655.12', '99999.99']) {
+      expect(convertBgnToEurWages(v).gte(convertBgnToEur(v))).toBe(true);
+    }
+    expect(convertBgnToEurWages('-1024.51').toFixed(2)).toBe('-523.83');
   });
 });

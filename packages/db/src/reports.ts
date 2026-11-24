@@ -10,7 +10,8 @@ import { withTenant } from './tenant';
  * Every report covers months [from..to] of the fiscal year of `periodId`; opening balances
  * are the posted entries of the same fiscal year before `from` (years have different ledger
  * currencies, BGN until 2025 and EUR from 2026, and are never mixed). Only posted entries
- * count; drafts are not in the books.
+ * count; drafts are not in the books. Opening lines (`is_opening`, the BGN → EUR
+ * conversion, ADR-0016) are always part of the opening balance, never of the turnover.
  */
 export type ReportTenant = { userId: string; officeId: string; companyId: string };
 
@@ -57,10 +58,10 @@ export async function trialBalance(
       await c.query<TrialBalanceRow>(
         `WITH sums AS (
            SELECT l.account_id,
-                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month < $2), 0) AS od,
-                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month < $2), 0) AS oc,
-                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month >= $2), 0) AS td,
-                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month >= $2), 0) AS tc
+                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND (p.month < $2 OR l.is_opening)), 0) AS od,
+                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND (p.month < $2 OR l.is_opening)), 0) AS oc,
+                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'D' AND p.month >= $2 AND NOT l.is_opening), 0) AS td,
+                  coalesce(sum(l.amount) FILTER (WHERE l.side = 'C' AND p.month >= $2 AND NOT l.is_opening), 0) AS tc
            ${POSTED_IN_YEAR} AND p.month <= $3
            GROUP BY l.account_id)
          SELECT a.id AS account_id, a.code, a.name,
@@ -115,7 +116,7 @@ export async function accountCard(
     );
     const opening = await c.query<{ v: string }>(
       `SELECT coalesce(sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END), 0)::text AS v
-       ${POSTED_IN_YEAR} AND l.account_id = $2 AND p.month < $3`,
+       ${POSTED_IN_YEAR} AND l.account_id = $2 AND (p.month < $3 OR l.is_opening)`,
       [periodId, accountId, from],
     );
     const open = opening.rows[0]?.v ?? '0';
@@ -124,7 +125,7 @@ export async function accountCard(
               coalesce(nullif(l.description, ''), e.description) AS description, l.side, l.amount::text,
               ($5::numeric + sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END)
                  OVER (ORDER BY e.entry_date, e.number, l.line_no))::text AS running
-       ${POSTED_IN_YEAR} AND l.account_id = $2 AND p.month BETWEEN $3 AND $4
+       ${POSTED_IN_YEAR} AND l.account_id = $2 AND p.month BETWEEN $3 AND $4 AND NOT l.is_opening
        ORDER BY e.entry_date, e.number, l.line_no`,
       [periodId, accountId, from, to, open],
     );
@@ -177,7 +178,7 @@ export async function generalLedger(
     const opening = await c.query<{ account_id: string; code: string; name: string; v: string }>(
       `SELECT a.id AS account_id, a.code, a.name,
               coalesce(sum(CASE l.side WHEN 'D' THEN l.amount ELSE -l.amount END)
-                       FILTER (WHERE p.month < $2), 0)::text AS v
+                       FILTER (WHERE p.month < $2 OR l.is_opening), 0)::text AS v
        FROM app.journal_line l
        JOIN app.journal_entry e ON e.id = l.entry_id AND e.status = 'posted'
        JOIN app.period p ON p.id = e.period_id
@@ -190,7 +191,7 @@ export async function generalLedger(
     const lines = await c.query<LedgerLine & { account_id: string }>(
       `SELECT l.account_id, e.id AS entry_id, e.number, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date,
               coalesce(nullif(l.description, ''), e.description) AS description, l.side, l.amount::text
-       ${POSTED_IN_YEAR} AND p.month BETWEEN $2 AND $3
+       ${POSTED_IN_YEAR} AND p.month BETWEEN $2 AND $3 AND NOT l.is_opening
        ORDER BY e.entry_date, e.number, l.line_no`,
       [periodId, from, to],
     );
@@ -245,6 +246,8 @@ export type RegisterLine = {
   side: 'D' | 'C';
   amount: string;
   reverses_number: number | null;
+  /** An opening balance line (BGN → EUR conversion), not an operation of the period. */
+  is_opening: boolean;
 };
 export type ChronologicalRegister = {
   lines: RegisterLine[];
@@ -267,7 +270,8 @@ export async function chronologicalRegister(
         await c.query<RegisterLine>(
           `SELECT e.id AS entry_id, e.number, l.line_no, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date,
                   e.description AS entry_description, coalesce(l.description, '') AS line_description,
-                  a.code, a.name AS account_name, l.side, l.amount::text, r.number AS reverses_number
+                  a.code, a.name AS account_name, l.side, l.amount::text, r.number AS reverses_number,
+                  l.is_opening
            FROM app.journal_line l
            JOIN app.journal_entry e ON e.id = l.entry_id AND e.status = 'posted'
            JOIN app.period p ON p.id = e.period_id

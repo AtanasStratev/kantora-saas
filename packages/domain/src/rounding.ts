@@ -46,6 +46,20 @@ export function convertBgnToEur(bgn: DecimalInput): Decimal {
   return roundHalfUp(toDecimal(bgn).dividedBy(BGN_PER_EUR), 2);
 }
 
+/**
+ * Converts wages and the other amounts of ЗВЕРБ чл. 45, ал. 1–2 (also as balances,
+ * чл. 48, ал. 2): divide by the full rate (чл. 12), then, "if the third decimal is greater
+ * than zero, the second decimal is increased by one unit". Only the third decimal decides
+ * (523.82364 → 523.83; 0.0102258… → 0.01). The magnitude is rounded; the sign is kept.
+ */
+export function convertBgnToEurWages(bgn: DecimalInput): Decimal {
+  const exact = toDecimal(bgn).dividedBy(BGN_PER_EUR);
+  const third = exact.abs().toDecimalPlaces(3, Decimal.ROUND_DOWN);
+  const two = exact.abs().toDecimalPlaces(2, Decimal.ROUND_DOWN);
+  const up = third.minus(two).gt(0) ? two.plus('0.01') : two;
+  return exact.isNegative() ? up.negated() : up;
+}
+
 /** How a BNB central rate is quoted (docs/legal/README.md, „Курсове на БНБ: формат“). */
 export type BnbQuote =
   /** From 1.01.2026: units of the currency for 1 EUR (the euro's rate to the currency). */
