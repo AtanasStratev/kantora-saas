@@ -86,6 +86,24 @@ export function convertWithBnbRate(amount: DecimalInput, quote: BnbQuote): Decim
   return roundHalfUp(a.times(rate).dividedBy(quote.units), 2);
 }
 
+/**
+ * An amount from a numeric Excel cell. Excel stores binary floating point, so 1234.56 can
+ * arrive as "1234.5599999999999". Such a value is the 2-decimal amount it displays when it
+ * is within 1e-9 of it; anything else really has more than 2 decimals and is refused (null)
+ * rather than silently rounded.
+ */
+export function excelNumberToMoney(raw: string): string | null {
+  let v: Decimal;
+  try {
+    v = new D(raw.trim());
+  } catch {
+    return null;
+  }
+  if (!v.isFinite()) return null;
+  const cents = v.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  return cents.minus(v).abs().lt('1e-9') ? cents.toFixed(2) : null;
+}
+
 /** Formats a Decimal as a fixed 2-decimal string for storage/transport (numeric(19,2)). */
 export function toMoneyString(value: Decimal): string {
   return value.toFixed(2);

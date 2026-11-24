@@ -303,6 +303,15 @@ describe('conversion of the 31.12.2025 balances (ЗВЕРБ чл. 48)', () => {
     expect(fresh.run?.stale).toBe(false);
     const tb26 = await trialBalance(app, owner, p2026[1]!, 1, 1);
     expect(tb26.reconciled).toBe(true);
+    // The reversal took the first opening balances back out: 503 is converted ONCE
+    // (5000 − 300 − 10 + random lines, all in leva → one conversion).
+    const tb25 = await trialBalance(app, owner, p2025[12]!, 1, 12);
+    const bank25 = tb25.rows.find((r) => r.code === '503')!;
+    const bank26 = tb26.rows.find((r) => r.code === '503')!;
+    expect(new Decimal(bank26.od).minus(bank26.oc).toFixed(2)).toBe(
+      convertBgnToEur(new Decimal(bank25.cd).minus(bank25.cc).toFixed(2)).toFixed(2),
+    );
+    expect([tb26.totals.td, tb26.totals.tc]).toEqual(['0.00', '0.00']);
   });
 
   it('opening lines cannot be posted by hand', async () => {
@@ -327,7 +336,9 @@ describe('conversion of the 31.12.2025 balances (ЗВЕРБ чл. 48)', () => {
           e.rows[0]!.id,
         ]);
       }),
-    ).rejects.toThrow('Редове за начални салда се създават само от превалутирането.');
+    ).rejects.toThrow(
+      'Редове за начални салда се създават само от превалутирането или от вноса на начални салда.',
+    );
   });
 });
 
