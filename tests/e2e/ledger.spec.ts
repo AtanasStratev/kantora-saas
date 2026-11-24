@@ -1,7 +1,7 @@
-import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { strFromU8, unzipSync } from 'fflate';
+import { checkThemes } from './a11y';
 import { OWNER_STATE } from './owner';
 
 test.use({ storageState: OWNER_STATE });
@@ -25,28 +25,6 @@ async function typeRow(page: Page, search: string, amount: string, side: 'D' | '
   await page.keyboard.press('Enter');
   if (side === 'D') await page.keyboard.press('Enter'); // credit → memo
   await page.keyboard.press('Enter'); // memo → next row's account
-}
-
-/** axe (WCAG 2.2 AA) and a screenshot of each ledger screen in the three themes. */
-async function checkThemes(page: Page, context: BrowserContext, screens: Record<string, string>) {
-  for (const theme of ['light', 'dark', 'black'] as const) {
-    await context.addCookies([
-      { name: 'kantora-theme', value: theme, url: 'http://localhost:3000' },
-    ]);
-    for (const [name, url] of Object.entries(screens)) {
-      await page.goto(url);
-      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      await expect(page.locator('main')).not.toBeEmpty();
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-        .analyze();
-      const violations = results.violations.map(
-        (v) => `${name}: ${v.id}: ${v.help} → ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`,
-      );
-      expect(violations).toEqual([]);
-      await page.screenshot({ path: `test-results/screens/${name}-${theme}.png`, fullPage: true });
-    }
-  }
 }
 
 test.describe('ledger, keyboard only', () => {

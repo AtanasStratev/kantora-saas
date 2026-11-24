@@ -21,7 +21,10 @@ const NAV = [
   { href: '/reports/trial-balance', label: 'Оборотна ведомост', key: 'goTrialBalance' as const },
   { href: '/reports/general-ledger', label: 'Главна книга', key: 'goGeneralLedger' as const },
   { href: '/reports/register', label: 'Хронологичен регистър', key: 'goRegister' as const },
+  { href: '/reports/analytic', label: 'Аналитична справка', key: 'goAnalytic' as const },
   { href: '/accounts', label: 'Сметкоплан', key: 'goAccounts' as const },
+  { href: '/counterparties', label: 'Контрагенти', key: 'goCounterparties' as const },
+  { href: '/cost-objects', label: 'Обекти', key: 'goCostObjects' as const },
   { href: '/rates', label: 'Курсове', key: 'goRates' as const },
   { href: '/parameters', label: 'Параметри', key: 'goParameters' as const },
   { href: '/team', label: 'Екип', key: 'goTeam' as const, ownerOnly: true },
@@ -99,6 +102,9 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           KeyT: '/reports/trial-balance',
           KeyL: '/reports/general-ledger',
           KeyR: '/reports/register',
+          KeyA: '/reports/analytic',
+          KeyC: '/counterparties',
+          KeyO: '/cost-objects',
           KeyK: '/rates',
         }[e.code];
         if (target) {

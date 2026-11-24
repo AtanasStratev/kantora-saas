@@ -1,5 +1,11 @@
 'use server';
-import { parseAmount, postingProblems, toTemplateLines, type EntryLine } from '@kantora/domain';
+import {
+  analyticsProblems,
+  parseAmount,
+  postingProblems,
+  toTemplateLines,
+  type EntryLine,
+} from '@kantora/domain';
 import { withTenant } from '@kantora/db';
 import { DatabaseError } from 'pg';
 import { z } from 'zod';
@@ -30,13 +36,12 @@ const NewAccount = z.object({
     ),
   name: z.string().trim().min(2, 'Въведете наименование на сметката.').max(200),
   isPostable: z.boolean(),
+  needs: z
+    .object({ counterparty: z.boolean(), document: z.boolean(), costObject: z.boolean() })
+    .default({ counterparty: false, document: false, costObject: false }),
 });
 
-export async function createAccount(input: {
-  code: string;
-  name: string;
-  isPostable: boolean;
-}): Promise<Result> {
+export async function createAccount(input: z.input<typeof NewAccount>): Promise<Result> {
   const scope = await companyScope('company.edit');
   if ('error' in scope) return { error: scope.error };
   const p = NewAccount.safeParse(input);
@@ -44,13 +49,18 @@ export async function createAccount(input: {
   try {
     await withTenant(appPool, scope.tenant, (c) =>
       c.query(
-        'INSERT INTO app.account (office_id, company_id, code, name, is_postable) VALUES ($1, $2, $3, $4, $5)',
+        `INSERT INTO app.account (office_id, company_id, code, name, is_postable,
+                                  needs_counterparty, needs_document, needs_cost_object)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           scope.tenant.officeId,
           scope.tenant.companyId,
           p.data.code,
           p.data.name,
           p.data.isPostable,
+          p.data.needs.counterparty,
+          p.data.needs.document,
+          p.data.needs.costObject,
         ],
       ),
     );
@@ -77,6 +87,14 @@ const EntryInput = z.object({
         debit: z.string(),
         credit: z.string(),
         description: z.string().max(500),
+        counterpartyId: z.union([z.uuid(), z.literal('')]).default(''),
+        documentNumber: z
+          .string()
+          .trim()
+          .max(50, 'Номерът на документа е до 50 знака.')
+          .default(''),
+        documentDate: z.union([z.iso.date(), z.literal('')]).default(''),
+        costObjectId: z.union([z.uuid(), z.literal('')]).default(''),
       }),
     )
     .max(500),
@@ -88,7 +106,7 @@ export type EntryInput = z.infer<typeof EntryInput>;
  * gives precise messages first; the database re-checks Dt = Кт at commit regardless.
  */
 export async function postEntry(
-  input: EntryInput,
+  input: z.input<typeof EntryInput>,
 ): Promise<Result<{ id: string; number: number }>> {
   const scope = await companyScope('accounting.post');
   if ('error' in scope) return { error: scope.error };
@@ -96,7 +114,15 @@ export async function postEntry(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Невалидни данни.' };
   const data = parsed.data;
 
-  const lines: (EntryLine & { accountId: string; description: string })[] = [];
+  type Line = EntryLine & {
+    accountId: string;
+    description: string;
+    counterpartyId: string | null;
+    documentNumber: string | null;
+    documentDate: string | null;
+    costObjectId: string | null;
+  };
+  const lines: Line[] = [];
   const problems: string[] = [];
   data.lines.forEach((l, i) => {
     const d = l.debit.trim();
@@ -118,6 +144,10 @@ export async function postEntry(
       side: d ? 'D' : 'C',
       amount: amt.value,
       description: l.description,
+      counterpartyId: l.counterpartyId || null,
+      documentNumber: l.documentNumber || null,
+      documentDate: l.documentDate || null,
+      costObjectId: l.costObjectId || null,
     });
   });
   problems.push(...postingProblems(lines).map((p) => p.message));
@@ -125,6 +155,40 @@ export async function postEntry(
 
   try {
     return await withTenant(appPool, scope.tenant, async (c) => {
+      // The accounts' analytic needs, read in the same transaction as the insert.
+      const needs = new Map(
+        (
+          await c.query<{
+            id: string;
+            needs_counterparty: boolean;
+            needs_document: boolean;
+            needs_cost_object: boolean;
+          }>(
+            'SELECT id, needs_counterparty, needs_document, needs_cost_object FROM app.account WHERE id = ANY($1)',
+            [lines.map((l) => l.accountId)],
+          )
+        ).rows.map((a) => [
+          a.id,
+          {
+            counterparty: a.needs_counterparty,
+            document: a.needs_document,
+            costObject: a.needs_cost_object,
+          },
+        ]),
+      );
+      const missing = analyticsProblems(
+        lines.map((l) => ({
+          ...l,
+          needs: needs.get(l.accountId) ?? {
+            counterparty: false,
+            document: false,
+            costObject: false,
+          },
+        })),
+      );
+      if (missing.length) {
+        return { error: 'Статията не е осчетоводена.', problems: missing.map((p) => p.message) };
+      }
       const period = await c.query<{ id: string }>(
         'SELECT id FROM app.period WHERE $1::date BETWEEN start_date AND end_date',
         [data.date],
@@ -150,8 +214,10 @@ export async function postEntry(
       let n = 0;
       for (const l of lines) {
         await c.query(
-          `INSERT INTO app.journal_line (office_id, company_id, entry_id, line_no, account_id, side, amount, description)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          `INSERT INTO app.journal_line (office_id, company_id, entry_id, line_no, account_id, side,
+                                         amount, description, counterparty_id, document_number,
+                                         document_date, cost_object_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             scope.tenant.officeId,
             scope.tenant.companyId,
@@ -161,6 +227,10 @@ export async function postEntry(
             l.side,
             l.amount,
             l.description,
+            l.counterpartyId,
+            l.documentNumber,
+            l.documentDate,
+            l.costObjectId,
           ],
         );
       }

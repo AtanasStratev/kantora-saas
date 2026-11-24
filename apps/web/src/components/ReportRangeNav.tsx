@@ -9,15 +9,19 @@ export function ReportRangeNav({
   month,
   monthLabel,
   year,
+  keep,
   children,
 }: {
   month: number;
   monthLabel: string;
   year: number;
+  /** Other query parameters of the page to keep (account, grouping). */
+  keep?: Record<string, string>;
   /** Export links, shown on the right. */
   children?: ReactNode;
 }) {
-  const q = (f: number, t: number) => `?from=${f}&to=${t}`;
+  const q = (f: number, t: number) =>
+    `?${new URLSearchParams({ ...keep, from: String(f), to: String(t) }).toString()}`;
   const cls = 'rounded border border-line px-2 py-0.5';
   return (
     <nav aria-label="Период на справката" className="mb-4 flex flex-wrap gap-2 text-sm">

@@ -18,6 +18,9 @@ export type ShortcutId =
   | 'goTrialBalance'
   | 'goGeneralLedger'
   | 'goRegister'
+  | 'goAnalytic'
+  | 'goCounterparties'
+  | 'goCostObjects'
   | 'goRates'
   | 'newEntry'
   | 'entryTemplate'
@@ -85,6 +88,27 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['g', 'r'],
     sequence: true,
     label: 'Към хронологичния регистър',
+    group: 'Навигация',
+  },
+  {
+    id: 'goAnalytic',
+    keys: ['g', 'a'],
+    sequence: true,
+    label: 'Към аналитичната справка',
+    group: 'Навигация',
+  },
+  {
+    id: 'goCounterparties',
+    keys: ['g', 'c'],
+    sequence: true,
+    label: 'Към контрагентите',
+    group: 'Навигация',
+  },
+  {
+    id: 'goCostObjects',
+    keys: ['g', 'o'],
+    sequence: true,
+    label: 'Към обектите',
     group: 'Навигация',
   },
   {

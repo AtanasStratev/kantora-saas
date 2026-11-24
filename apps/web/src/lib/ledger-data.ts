@@ -1,4 +1,5 @@
 import 'server-only';
+import type { AnalyticNeeds } from '@kantora/domain';
 import { withTenant } from '@kantora/db';
 import { appPool } from './db';
 
@@ -8,6 +9,7 @@ export type AccountRow = {
   name: string;
   isPostable: boolean;
   isActive: boolean;
+  needs: AnalyticNeeds;
 };
 
 export async function loadAccounts(tenant: {
@@ -22,7 +24,13 @@ export async function loadAccounts(tenant: {
       name: string;
       is_postable: boolean;
       is_active: boolean;
-    }>('SELECT id, code, name, is_postable, is_active FROM app.account');
+      needs_counterparty: boolean;
+      needs_document: boolean;
+      needs_cost_object: boolean;
+    }>(
+      `SELECT id, code, name, is_postable, is_active, needs_counterparty, needs_document,
+              needs_cost_object FROM app.account`,
+    );
     return r.rows
       .map((a) => ({
         id: a.id,
@@ -30,6 +38,11 @@ export async function loadAccounts(tenant: {
         name: a.name,
         isPostable: a.is_postable,
         isActive: a.is_active,
+        needs: {
+          counterparty: a.needs_counterparty,
+          document: a.needs_document,
+          costObject: a.needs_cost_object,
+        },
       }))
       .sort((a, b) => a.code.localeCompare(b.code, 'bg', { numeric: true }));
   });
@@ -80,5 +93,55 @@ export async function loadTemplates(tenant: {
           })),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'bg'));
+  });
+}
+
+type Tenant = { userId: string; officeId: string; companyId: string };
+
+export type CounterpartyRow = {
+  id: string;
+  name: string;
+  eik: string | null;
+  vatNumber: string | null;
+  country: string;
+  address: string;
+  isActive: boolean;
+};
+
+export async function loadCounterparties(tenant: Tenant): Promise<CounterpartyRow[]> {
+  return withTenant(appPool, tenant, async (c) => {
+    const r = await c.query<{
+      id: string;
+      name: string;
+      eik: string | null;
+      vat_number: string | null;
+      country: string;
+      address: string;
+      is_active: boolean;
+    }>('SELECT id, name, eik, vat_number, country, address, is_active FROM app.counterparty');
+    return r.rows
+      .map((x) => ({
+        id: x.id,
+        name: x.name,
+        eik: x.eik,
+        vatNumber: x.vat_number,
+        country: x.country,
+        address: x.address,
+        isActive: x.is_active,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'bg'));
+  });
+}
+
+export type CostObjectRow = { id: string; code: string; name: string; isActive: boolean };
+
+export async function loadCostObjects(tenant: Tenant): Promise<CostObjectRow[]> {
+  return withTenant(appPool, tenant, async (c) => {
+    const r = await c.query<{ id: string; code: string; name: string; is_active: boolean }>(
+      'SELECT id, code, name, is_active FROM app.cost_object',
+    );
+    return r.rows
+      .map((x) => ({ id: x.id, code: x.code, name: x.name, isActive: x.is_active }))
+      .sort((a, b) => a.code.localeCompare(b.code, 'bg', { numeric: true }));
   });
 }

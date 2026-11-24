@@ -13,7 +13,8 @@ import Decimal from 'decimal.js';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Button, ErrorText, Kbd, inputClass } from '@/components/ui';
-import type { AccountRow, TemplateRow } from '@/lib/ledger-data';
+import type { AccountRow, CostObjectRow, CounterpartyRow, TemplateRow } from '@/lib/ledger-data';
+import { createCounterparty } from '../../analytics-actions';
 import { postEntry, saveTemplate } from '../../ledger-actions';
 
 // hint: the side a template expects when it carries no fixed amount.
@@ -22,11 +23,40 @@ type Row = {
   accountId: string;
   debit: string;
   credit: string;
+  cpText: string;
+  cpId: string;
+  docNo: string;
+  docDateText: string;
+  objText: string;
+  objId: string;
   memo: string;
   hint?: 'D' | 'C';
 };
-const emptyRow = (): Row => ({ accountText: '', accountId: '', debit: '', credit: '', memo: '' });
-const COLS = 4; // account, debit, credit, memo
+const emptyRow = (): Row => ({
+  accountText: '',
+  accountId: '',
+  debit: '',
+  credit: '',
+  cpText: '',
+  cpId: '',
+  docNo: '',
+  docDateText: '',
+  objText: '',
+  objId: '',
+  memo: '',
+});
+
+// Column indices; analytic columns are shown only when some account needs them.
+const ACC = 0;
+const DEB = 1;
+const CRE = 2;
+const CP = 3;
+const DOC = 4;
+const DDATE = 5;
+const OBJ = 6;
+const MEMO = 7;
+type ComboCol = typeof ACC | typeof CP | typeof OBJ;
+type Option = { id: string; label: string; sub?: string; create?: true };
 
 function amountOf(text: string): Decimal | null {
   if (!text.trim()) return new Decimal(0);
@@ -34,18 +64,26 @@ function amountOf(text: string): Decimal | null {
   return r.ok ? new Decimal(r.value) : null;
 }
 
+const cpLabel = (c: Pick<CounterpartyRow, 'name' | 'eik'>) =>
+  c.eik ? `${c.name} (${c.eik})` : c.name;
+
 /**
  * Journal entry grid, keyboard first (PROMPT.md 5.2). The server validates again and the
- * database enforces Dt = Кт on posting, so this UI is a convenience, not the guarantee.
+ * database enforces Dt = Кт and the accounts' analytics on posting, so this UI is a
+ * convenience, not the guarantee.
  */
 export function EntryForm({
   accounts,
   templates,
+  counterparties: initialCounterparties,
+  costObjects,
   period,
   defaultDate,
 }: {
   accounts: AccountRow[];
   templates: TemplateRow[];
+  counterparties: CounterpartyRow[];
+  costObjects: CostObjectRow[];
   period: PeriodContext & { label: string };
   defaultDate: string;
 }) {
@@ -55,17 +93,42 @@ export function EntryForm({
   const [dateError, setDateError] = useState('');
   const [description, setDescription] = useState('');
   const [rows, setRows] = useState<Row[]>([emptyRow(), emptyRow()]);
-  const [suggest, setSuggest] = useState<{ row: number; index: number } | null>(null);
+  const [suggest, setSuggest] = useState<{ row: number; col: ComboCol; index: number } | null>(
+    null,
+  );
   const [error, setError] = useState('');
   const [problems, setProblems] = useState<string[]>([]);
   const [done, setDone] = useState('');
   const [busy, setBusy] = useState(false);
   const [picker, setPicker] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [newCp, setNewCp] = useState<{ row: number; text: string } | null>(null);
+  const [counterparties, setCounterparties] = useState(initialCounterparties);
   const [note, setNote] = useState('');
   const cells = useRef<(HTMLInputElement | null)[][]>([]);
 
   const postable = useMemo(() => accounts.filter((a) => a.isPostable && a.isActive), [accounts]);
+  const byId = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+  const activeCps = useMemo(() => counterparties.filter((c) => c.isActive), [counterparties]);
+  const activeObjs = useMemo(() => costObjects.filter((o) => o.isActive), [costObjects]);
+
+  // Analytic columns appear only when an account of the chart needs them.
+  const show = {
+    cp: postable.some((a) => a.needs.counterparty),
+    doc: postable.some((a) => a.needs.document),
+    obj: postable.some((a) => a.needs.costObject),
+  };
+  const cols = [
+    ACC,
+    DEB,
+    CRE,
+    ...(show.cp ? [CP] : []),
+    ...(show.doc ? [DOC, DDATE] : []),
+    ...(show.obj ? [OBJ] : []),
+    MEMO,
+  ];
+
+  const needsOf = (r: Row) => byId.get(r.accountId)?.needs;
 
   const totals = useMemo(() => {
     let d = new Decimal(0);
@@ -101,12 +164,12 @@ export function EntryForm({
     setFocusTick((t) => t + 1);
   }
 
-  const isEmpty = (r: Row) => !r.accountText && !r.debit && !r.credit && !r.memo;
+  const isEmpty = (r: Row) =>
+    !r.accountText && !r.debit && !r.credit && !r.memo && !r.cpText && !r.docNo && !r.objText;
 
   /** Adds the template's lines after the rows already typed; nothing typed is lost. */
   function applyTemplate(t: TemplateRow) {
     setPicker(false);
-    const byId = new Map(accounts.map((a) => [a.id, a]));
     const skipped: string[] = [];
     const added: Row[] = [];
     for (const l of t.lines) {
@@ -117,6 +180,7 @@ export function EntryForm({
       }
       const amount = l.amount ? formatAmount(l.amount) : '';
       added.push({
+        ...emptyRow(),
         accountText: `${a.code} ${a.name}`,
         accountId: a.id,
         debit: l.side === 'D' ? amount : '',
@@ -137,9 +201,9 @@ export function EntryForm({
     // Cursor to the first amount still to be typed, else to the first added row.
     const firstHint = added.findIndex((r) => r.hint);
     if (firstHint >= 0) {
-      focusCell(kept.length + firstHint, added[firstHint]?.hint === 'C' ? 2 : 1);
+      focusCell(kept.length + firstHint, added[firstHint]?.hint === 'C' ? CRE : DEB);
     } else {
-      focusCell(kept.length, 1);
+      focusCell(kept.length, DEB);
     }
   }
 
@@ -147,44 +211,108 @@ export function EntryForm({
     setRows((rs) => rs.map((r, i) => (i === row ? { ...r, ...patch } : r)));
   }
 
-  function suggestionsFor(text: string): AccountRow[] {
+  function rank<T>(
+    items: readonly T[],
+    text: string,
+    key: (x: T) => string,
+    exact: (x: T) => boolean,
+  ) {
     const q = text.trim();
     if (!q) return [];
-    return postable
-      .map((a) => ({ a, s: a.code === q ? 1000 : matchScore(`${a.code} ${a.name}`, q) }))
-      .filter((x) => x.s > 0)
-      .sort((x, y) => y.s - x.s || x.a.code.localeCompare(y.a.code, 'bg', { numeric: true }))
+    return items
+      .map((x) => ({ x, s: exact(x) ? 1000 : matchScore(key(x), q) }))
+      .filter((v) => v.s > 0)
+      .sort((a, b) => b.s - a.s)
       .slice(0, 6)
-      .map((x) => x.a);
+      .map((v) => v.x);
   }
 
-  function pickAccount(row: number, a: AccountRow) {
-    update(row, { accountId: a.id, accountText: `${a.code} ${a.name}` });
-    setSuggest(null);
-    focusCell(row, 1);
+  function optionsFor(row: number, col: ComboCol): Option[] {
+    const r = rows[row];
+    if (!r) return [];
+    if (col === ACC) {
+      return rank(
+        [...postable].sort((a, b) => a.code.localeCompare(b.code, 'bg', { numeric: true })),
+        r.accountText,
+        (a) => `${a.code} ${a.name}`,
+        (a) => a.code === r.accountText.trim(),
+      ).map((a) => ({ id: a.id, label: a.code, sub: a.name }));
+    }
+    if (col === CP) {
+      const q = r.cpText.trim();
+      if (!q) return [];
+      const found = rank(
+        activeCps,
+        q,
+        (c) => `${c.name} ${c.eik ?? ''} ${c.vatNumber ?? ''}`,
+        (c) => c.eik === q.replace(/\s+/g, ''),
+      ).map((c) => ({ id: c.id, label: c.name, ...(c.eik ? { sub: c.eik } : {}) }));
+      return [...found, { id: 'new', label: `Нов контрагент „${q}“…`, create: true }];
+    }
+    return rank(
+      activeObjs,
+      r.objText,
+      (o) => `${o.code} ${o.name}`,
+      (o) => o.code === r.objText.trim(),
+    ).map((o) => ({ id: o.id, label: o.code, sub: o.name }));
+  }
+
+  /** The next column of this row worth stopping at: analytics only where needed or filled. */
+  function nextCol(row: number, col: number): number | null {
+    const r = rows[row];
+    const needs = r ? needsOf(r) : undefined;
+    for (const c of cols.filter((x) => x > col)) {
+      if (c === CP && !(needs?.counterparty || r?.cpText)) continue;
+      if ((c === DOC || c === DDATE) && !(needs?.document || r?.docNo)) continue;
+      if (c === OBJ && !(needs?.costObject || r?.objText)) continue;
+      return c;
+    }
+    return null;
   }
 
   function nextCell(row: number, col: number) {
-    if (col < COLS - 1) return focusCell(row, col + 1);
+    const c = nextCol(row, col);
+    if (c !== null) return focusCell(row, c);
     if (row === rows.length - 1) setRows((rs) => [...rs, emptyRow()]);
-    focusCell(row + 1, 0);
+    focusCell(row + 1, ACC);
+  }
+
+  function pick(row: number, col: ComboCol, o: Option) {
+    setSuggest(null);
+    if (o.create) {
+      setNewCp({ row, text: rows[row]?.cpText ?? '' });
+      return;
+    }
+    if (col === ACC) {
+      const a = byId.get(o.id);
+      update(row, { accountId: o.id, accountText: a ? `${a.code} ${a.name}` : o.label });
+      return focusCell(row, DEB);
+    }
+    if (col === CP) {
+      const c = counterparties.find((x) => x.id === o.id);
+      update(row, { cpId: o.id, cpText: c ? cpLabel(c) : o.label });
+    } else {
+      const ob = costObjects.find((x) => x.id === o.id);
+      update(row, { objId: o.id, objText: ob ? `${ob.code} ${ob.name}` : o.label });
+    }
+    nextCell(row, col);
   }
 
   function onCellKey(e: KeyboardEvent<HTMLInputElement>, row: number, col: number) {
-    const open =
-      suggest?.row === row && col === 0 ? suggestionsFor(rows[row]?.accountText ?? '') : [];
-    if (col === 0 && open.length) {
+    const combo = col === ACC || col === CP || col === OBJ;
+    const open = combo && suggest?.row === row && suggest.col === col ? optionsFor(row, col) : [];
+    if (combo && open.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         const max = open.length - 1;
         const i = (suggest?.index ?? 0) + (e.key === 'ArrowDown' ? 1 : -1);
-        setSuggest({ row, index: Math.max(0, Math.min(max, i)) });
+        setSuggest({ row, col, index: Math.max(0, Math.min(max, i)) });
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         const chosen = open[suggest?.index ?? 0] ?? open[0];
-        if (chosen) pickAccount(row, chosen);
+        if (chosen) pick(row, col, chosen);
         return;
       }
       if (e.key === 'Escape') {
@@ -206,25 +334,26 @@ export function EntryForm({
       focusCell(Math.max(0, row - 1), col);
       return;
     }
-    if (e.key === 'F9' && (col === 1 || col === 2)) {
+    if (e.key === 'F9' && (col === DEB || col === CRE)) {
       // Fill the amount that balances the entry into this cell.
       e.preventDefault();
       const r = rows[row];
       if (!r) return;
-      const own = amountOf(col === 1 ? r.debit : r.credit) ?? new Decimal(0);
-      const need = col === 1 ? totals.diff.negated().plus(own) : totals.diff.plus(own);
+      const own = amountOf(col === DEB ? r.debit : r.credit) ?? new Decimal(0);
+      const need = col === DEB ? totals.diff.negated().plus(own) : totals.diff.plus(own);
       if (need.isPositive() && !need.isZero()) {
         update(
           row,
-          col === 1
+          col === DEB
             ? { debit: formatAmount(need), credit: '' }
             : { credit: formatAmount(need), debit: '' },
         );
       }
       return;
     }
-    if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && col === COLS - 1)) {
+    if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && col === MEMO)) {
       e.preventDefault();
+      if (col === DDATE) commitDocDate(row);
       nextCell(row, col);
       return;
     }
@@ -249,6 +378,16 @@ export function EntryForm({
     }
   }
 
+  const docDateIso = (text: string): string | null | undefined => {
+    if (!text.trim()) return null;
+    const r = parseQuickDate(text, period);
+    return r.ok ? r.value : undefined; // undefined = invalid
+  };
+  function commitDocDate(row: number) {
+    const iso = docDateIso(rows[row]?.docDateText ?? '');
+    if (iso) update(row, { docDateText: formatDate(iso) });
+  }
+
   function commitDate() {
     const r = parseQuickDate(dateText, period);
     if (r.ok) {
@@ -269,13 +408,22 @@ export function EntryForm({
       setError(dateError || 'Въведете дата.');
       return;
     }
-    const filled = rows.filter((r) => r.accountText || r.debit || r.credit || r.memo);
-    const unknown = filled.findIndex((r) => !r.accountId);
-    if (unknown >= 0) {
-      setError(`Ред ${unknown + 1}: изберете сметка от списъка (по код или име).`);
-      const target = filled[unknown];
-      focusCell(target ? rows.indexOf(target) : 0, 0);
-      return;
+    const filled = rows.filter((r) => !isEmpty(r));
+    const at = (r: Row) => rows.indexOf(r);
+    const check: [(r: Row) => boolean, string, number][] = [
+      [(r) => !r.accountId, 'изберете сметка от списъка (по код или име).', ACC],
+      [(r) => !!r.cpText && !r.cpId, 'изберете контрагент от списъка или създайте нов.', CP],
+      [(r) => !!r.objText && !r.objId, 'изберете обект от списъка.', OBJ],
+      [(r) => docDateIso(r.docDateText) === undefined, 'невалидна дата на документа.', DDATE],
+    ];
+    for (const [bad, msg, col] of check) {
+      const i = filled.findIndex(bad);
+      const target = filled[i];
+      if (target) {
+        setError(`Ред ${i + 1}: ${msg}`);
+        focusCell(at(target), col);
+        return;
+      }
     }
     setBusy(true);
     const r = await postEntry({
@@ -283,10 +431,14 @@ export function EntryForm({
       description,
       lines: filled.map((x) => ({
         accountId: x.accountId,
-        accountCode: x.accountText.split(' ')[0] ?? '',
+        accountCode: byId.get(x.accountId)?.code ?? '',
         debit: x.debit,
         credit: x.credit,
         description: x.memo,
+        counterpartyId: x.cpId,
+        documentNumber: x.docNo.trim(),
+        documentDate: docDateIso(x.docDateText) ?? '',
+        costObjectId: x.objId,
       })),
     });
     setBusy(false);
@@ -299,10 +451,84 @@ export function EntryForm({
     setRows([emptyRow(), emptyRow()]);
     setDescription('');
     router.refresh();
-    focusCell(0, 0);
+    focusCell(0, ACC);
   }
 
   const balanced = !totals.invalid && totals.diff.isZero() && !totals.d.isZero();
+
+  const ref = (row: number, col: number) => (el: HTMLInputElement | null) => {
+    (cells.current[row] ??= [])[col] = el;
+  };
+
+  /** Account, counterparty and object cells: type, pick from the list. */
+  function comboCell(
+    i: number,
+    col: ComboCol,
+    label: string,
+    value: string,
+    resolved: boolean,
+    onType: (text: string) => void,
+    required: boolean,
+  ) {
+    const open = suggest?.row === i && suggest.col === col ? optionsFor(i, col) : [];
+    const bad = value && !resolved && !(suggest?.row === i && suggest.col === col);
+    const listId = `options-${i}-${col}`;
+    return (
+      <td className="relative px-1 py-1">
+        <input
+          ref={ref(i, col)}
+          aria-label={`Ред ${i + 1}, ${label}`}
+          aria-invalid={bad ? true : undefined}
+          aria-required={required || undefined}
+          placeholder={required && !value ? 'задължително' : undefined}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open.length > 0}
+          {...(open.length > 0
+            ? {
+                'aria-controls': listId,
+                'aria-activedescendant': `${listId}-${suggest?.index ?? 0}`,
+              }
+            : {})}
+          className={`${inputClass} w-full`}
+          value={value}
+          onChange={(e) => {
+            onType(e.target.value);
+            setSuggest({ row: i, col, index: 0 });
+          }}
+          onFocus={() => value && !resolved && setSuggest({ row: i, col, index: 0 })}
+          onBlur={() =>
+            setTimeout(() => setSuggest((s) => (s?.row === i && s.col === col ? null : s)), 150)
+          }
+          onKeyDown={(e) => onCellKey(e, i, col)}
+        />
+        {open.length > 0 ? (
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute z-20 mt-1 w-full min-w-56 rounded border border-line-strong bg-surface-raised shadow-lg"
+          >
+            {open.map((o, k) => (
+              <li
+                key={o.id}
+                id={`${listId}-${k}`}
+                role="option"
+                aria-selected={k === (suggest?.index ?? 0)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(i, col, o);
+                }}
+                className={`cursor-default px-2 py-1 aria-selected:bg-surface-selected ${o.create ? 'border-t border-line text-accent' : ''}`}
+              >
+                <span className="tabular-nums">{o.label}</span>
+                {o.sub ? <span className="text-fg-muted"> {o.sub}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </td>
+    );
+  }
 
   return (
     <div
@@ -329,7 +555,7 @@ export function EntryForm({
               if (e.key === 'Enter') {
                 e.preventDefault();
                 commitDate();
-                focusCell(0, 0);
+                focusCell(0, ACC);
               }
             }}
             autoFocus
@@ -344,7 +570,7 @@ export function EntryForm({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                focusCell(0, 0);
+                focusCell(0, ACC);
               }
             }}
           />
@@ -357,102 +583,115 @@ export function EntryForm({
           <tr className="border-b border-line-strong text-left text-xs text-fg-muted">
             <th className="w-8 px-1 py-1 text-right font-normal">№</th>
             <th className="px-1 py-1 font-normal">Сметка</th>
-            <th className="w-36 px-1 py-1 text-right font-normal">Дебит</th>
-            <th className="w-36 px-1 py-1 text-right font-normal">Кредит</th>
+            <th className="w-32 px-1 py-1 text-right font-normal">Дебит</th>
+            <th className="w-32 px-1 py-1 text-right font-normal">Кредит</th>
+            {show.cp ? <th className="px-1 py-1 font-normal">Контрагент</th> : null}
+            {show.doc ? (
+              <>
+                <th className="w-28 px-1 py-1 font-normal">Документ №</th>
+                <th className="w-28 px-1 py-1 font-normal">Дата на док.</th>
+              </>
+            ) : null}
+            {show.obj ? <th className="w-40 px-1 py-1 font-normal">Обект</th> : null}
             <th className="px-1 py-1 font-normal">Пояснение</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const open = suggest?.row === i ? suggestionsFor(r.accountText) : [];
-            const badAccount = r.accountText && !r.accountId && suggest?.row !== i;
+            const needs = needsOf(r);
+            const badDocDate = docDateIso(r.docDateText) === undefined;
             return (
               <tr key={i} className="border-b border-line align-top">
                 <td className="px-1 py-1 text-right text-xs text-fg-muted tabular-nums">{i + 1}</td>
-                <td className="relative px-1 py-1">
-                  <input
-                    ref={(el) => {
-                      (cells.current[i] ??= [])[0] = el;
-                    }}
-                    aria-label={`Ред ${i + 1}, сметка`}
-                    aria-invalid={badAccount ? true : undefined}
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded={open.length > 0}
-                    {...(open.length > 0
-                      ? {
-                          'aria-controls': `account-options-${i}`,
-                          'aria-activedescendant': `account-option-${i}-${suggest?.index ?? 0}`,
+                {comboCell(
+                  i,
+                  ACC,
+                  'сметка',
+                  r.accountText,
+                  !!r.accountId,
+                  (t) => update(i, { accountText: t, accountId: '' }),
+                  false,
+                )}
+                {(['debit', 'credit'] as const).map((f) => {
+                  const col = f === 'debit' ? DEB : CRE;
+                  return (
+                    <td key={f} className="px-1 py-1">
+                      <input
+                        ref={ref(i, col)}
+                        aria-label={`Ред ${i + 1}, ${f === 'debit' ? 'дебит' : 'кредит'}`}
+                        inputMode="decimal"
+                        placeholder={
+                          r.hint === (f === 'debit' ? 'D' : 'C') && !r[f] ? 'сума' : undefined
                         }
-                      : {})}
-                    className={`${inputClass} w-full`}
-                    value={r.accountText}
-                    onChange={(e) => {
-                      update(i, { accountText: e.target.value, accountId: '' });
-                      setSuggest({ row: i, index: 0 });
-                    }}
-                    onFocus={() =>
-                      r.accountText && !r.accountId && setSuggest({ row: i, index: 0 })
-                    }
-                    onBlur={() =>
-                      setTimeout(() => setSuggest((s) => (s?.row === i ? null : s)), 150)
-                    }
-                    onKeyDown={(e) => onCellKey(e, i, 0)}
-                  />
-                  {open.length > 0 ? (
-                    <ul
-                      id={`account-options-${i}`}
-                      role="listbox"
-                      className="absolute z-20 mt-1 w-full rounded border border-line-strong bg-surface-raised shadow-lg"
-                    >
-                      {open.map((a, k) => (
-                        <li
-                          key={a.id}
-                          id={`account-option-${i}-${k}`}
-                          role="option"
-                          aria-selected={k === (suggest?.index ?? 0)}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            pickAccount(i, a);
-                          }}
-                          className="cursor-default px-2 py-1 aria-selected:bg-surface-selected"
-                        >
-                          <span className="tabular-nums">{a.code}</span> {a.name}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </td>
-                {(['debit', 'credit'] as const).map((f, k) => (
-                  <td key={f} className="px-1 py-1">
-                    <input
-                      ref={(el) => {
-                        (cells.current[i] ??= [])[k + 1] = el;
-                      }}
-                      aria-label={`Ред ${i + 1}, ${f === 'debit' ? 'дебит' : 'кредит'}`}
-                      inputMode="decimal"
-                      placeholder={
-                        r.hint === (f === 'debit' ? 'D' : 'C') && !r[f] ? 'сума' : undefined
-                      }
-                      aria-invalid={amountOf(r[f]) === null ? true : undefined}
-                      className={`${inputClass} w-full text-right tabular-nums`}
-                      value={r[f]}
-                      onChange={(e) => update(i, { [f]: e.target.value })}
-                      onBlur={() => formatCell(i, f)}
-                      onKeyDown={(e) => onCellKey(e, i, k + 1)}
-                    />
-                  </td>
-                ))}
+                        aria-invalid={amountOf(r[f]) === null ? true : undefined}
+                        className={`${inputClass} w-full text-right tabular-nums`}
+                        value={r[f]}
+                        onChange={(e) => update(i, { [f]: e.target.value })}
+                        onBlur={() => formatCell(i, f)}
+                        onKeyDown={(e) => onCellKey(e, i, col)}
+                      />
+                    </td>
+                  );
+                })}
+                {show.cp
+                  ? comboCell(
+                      i,
+                      CP,
+                      'контрагент',
+                      r.cpText,
+                      !!r.cpId,
+                      (t) => update(i, { cpText: t, cpId: '' }),
+                      !!needs?.counterparty,
+                    )
+                  : null}
+                {show.doc ? (
+                  <>
+                    <td className="px-1 py-1">
+                      <input
+                        ref={ref(i, DOC)}
+                        aria-label={`Ред ${i + 1}, номер на документ`}
+                        aria-required={needs?.document || undefined}
+                        placeholder={needs?.document && !r.docNo ? 'задължително' : undefined}
+                        maxLength={50}
+                        className={`${inputClass} w-full`}
+                        value={r.docNo}
+                        onChange={(e) => update(i, { docNo: e.target.value })}
+                        onKeyDown={(e) => onCellKey(e, i, DOC)}
+                      />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input
+                        ref={ref(i, DDATE)}
+                        aria-label={`Ред ${i + 1}, дата на документ`}
+                        aria-invalid={badDocDate ? true : undefined}
+                        className={`${inputClass} w-full tabular-nums`}
+                        value={r.docDateText}
+                        onChange={(e) => update(i, { docDateText: e.target.value })}
+                        onBlur={() => commitDocDate(i)}
+                        onKeyDown={(e) => onCellKey(e, i, DDATE)}
+                      />
+                    </td>
+                  </>
+                ) : null}
+                {show.obj
+                  ? comboCell(
+                      i,
+                      OBJ,
+                      'обект',
+                      r.objText,
+                      !!r.objId,
+                      (t) => update(i, { objText: t, objId: '' }),
+                      !!needs?.costObject,
+                    )
+                  : null}
                 <td className="px-1 py-1">
                   <input
-                    ref={(el) => {
-                      (cells.current[i] ??= [])[3] = el;
-                    }}
+                    ref={ref(i, MEMO)}
                     aria-label={`Ред ${i + 1}, пояснение`}
                     className={`${inputClass} w-full`}
                     value={r.memo}
                     onChange={(e) => update(i, { memo: e.target.value })}
-                    onKeyDown={(e) => onCellKey(e, i, 3)}
+                    onKeyDown={(e) => onCellKey(e, i, MEMO)}
                   />
                 </td>
               </tr>
@@ -475,7 +714,12 @@ export function EntryForm({
             >
               {formatAmount(totals.c)}
             </td>
-            <td className="px-2 py-2" role="status" data-testid="balance-status">
+            <td
+              className="px-2 py-2"
+              role="status"
+              data-testid="balance-status"
+              colSpan={cols.length - 3}
+            >
               {totals.invalid ? (
                 <span className="text-negative">Има невалидна сума</span>
               ) : balanced ? (
@@ -559,7 +803,140 @@ export function EntryForm({
           return [];
         }}
       />
+      <NewCounterpartyDialog
+        prefill={newCp?.text ?? null}
+        onClose={() => {
+          const row = newCp?.row ?? 0;
+          setNewCp(null);
+          focusCell(row, CP);
+        }}
+        onCreated={(c) => {
+          const row = newCp?.row ?? 0;
+          const full: CounterpartyRow = {
+            id: c.id,
+            name: c.name,
+            eik: c.eik,
+            vatNumber: null,
+            country: 'BG',
+            address: '',
+            isActive: true,
+          };
+          setCounterparties((cs) => [...cs, full]);
+          update(row, { cpId: c.id, cpText: cpLabel(full) });
+          setNewCp(null);
+          setNote(`Контрагентът „${c.name}“ е създаден.`);
+          nextCell(row, CP);
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * New counterparty without leaving the entry: digits typed in the cell become the EIK,
+ * anything else the name. Enter saves, Esc returns to the cell.
+ */
+function NewCounterpartyDialog({
+  prefill,
+  onClose,
+  onCreated,
+}: {
+  prefill: string | null;
+  onClose: () => void;
+  onCreated: (c: { id: string; name: string; eik: string | null }) => void;
+}) {
+  const [name, setName] = useState('');
+  const [eik, setEik] = useState('');
+  const [vat, setVat] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Fill the form each time the dialog opens: digits typed in the cell are the EIK,
+  // anything else the name. (Not onOpenAutoFocus: autoFocus on the name field keeps
+  // Radix from firing it.)
+  useEffect(() => {
+    if (prefill === null) return;
+    const t = prefill.trim();
+    const digits = /^[\d\s]+$/.test(t);
+    setName(digits ? '' : t);
+    setEik(digits ? t.replace(/\s+/g, '') : '');
+    setVat('');
+    setError('');
+  }, [prefill]);
+  const field = 'flex flex-col gap-1 text-xs text-fg-muted';
+  return (
+    <RD.Root open={prefill !== null} onOpenChange={(o) => !o && onClose()}>
+      <RD.Portal>
+        <RD.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <RD.Content
+          className="fixed top-24 left-1/2 z-50 w-[30rem] max-w-[92vw] -translate-x-1/2 rounded border border-line-strong bg-surface-raised p-4 text-fg shadow-lg"
+          // The grid decides where the cursor goes next (the next cell, or back to the cell).
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <RD.Title className="mb-1 font-semibold">Нов контрагент</RD.Title>
+          <RD.Description className="mb-3 text-sm text-fg-muted">
+            ЕИК се проверява засега само за брой цифри (9 или 13).
+          </RD.Description>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setBusy(true);
+              void createCounterparty({ name, eik, vatNumber: vat, address: '' }).then((r) => {
+                setBusy(false);
+                if (r.error !== undefined) setError(r.error);
+                else onCreated(r);
+              });
+            }}
+          >
+            <label className={field}>
+              Наименование
+              <input
+                className={inputClass}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                maxLength={200}
+                autoFocus
+              />
+            </label>
+            <label className={field}>
+              ЕИК
+              <input
+                className={`${inputClass} tabular-nums`}
+                value={eik}
+                onChange={(e) => setEik(e.target.value)}
+                inputMode="numeric"
+                maxLength={20}
+              />
+            </label>
+            <label className={field}>
+              ДДС номер
+              <input
+                className={inputClass}
+                value={vat}
+                onChange={(e) => setVat(e.target.value)}
+                maxLength={20}
+              />
+            </label>
+            {error ? (
+              <p role="alert" className="text-sm text-negative">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <RD.Close asChild>
+                <Button inline variant="secondary" type="button">
+                  Отказ
+                </Button>
+              </RD.Close>
+              <Button inline type="submit" disabled={busy}>
+                {busy ? 'Запис…' : 'Създай'}
+              </Button>
+            </div>
+          </form>
+        </RD.Content>
+      </RD.Portal>
+    </RD.Root>
   );
 }
 

@@ -8,6 +8,10 @@ import { periodLabel } from '@/lib/period';
 import {
   accountCard,
   accountCardTable,
+  analyticReport,
+  analyticTable,
+  counterpartyStatement,
+  statementTable,
   chronologicalRegister,
   generalLedger,
   generalLedgerTable,
@@ -28,6 +32,7 @@ const Query = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   id: z.uuid().optional(),
+  by: z.enum(['counterparty', 'document', 'cost_object']).optional(),
 });
 
 const MIME = {
@@ -71,6 +76,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ report: 
     table = generalLedgerTable(await generalLedger(tenant, period.id, from, to), meta);
   } else if (report === 'register') {
     table = registerTable(await chronologicalRegister(tenant, period.id, from, to), meta);
+  } else if (report === 'analytic') {
+    if (!q.data.id) return fail(400, 'Липсва сметка.');
+    const by = q.data.by ?? 'counterparty';
+    const rep = await analyticReport(tenant, q.data.id, by, period.id, from, to);
+    if (!rep.account) return fail(404, 'Сметката не е намерена.');
+    table = analyticTable(rep, by, meta);
+  } else if (report === 'statement') {
+    if (!q.data.id) return fail(400, 'Липсва контрагент.');
+    const st = await counterpartyStatement(tenant, q.data.id, period.id, from, to);
+    if (!st.counterparty) return fail(404, 'Контрагентът не е намерен.');
+    table = statementTable(st, meta);
   } else if (report === 'journal') {
     table = journalTable(await journalList(tenant, period.id), {
       ...meta,

@@ -2,7 +2,12 @@ import { can, isRole } from '@kantora/domain';
 import Link from 'next/link';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
-import { loadAccounts, loadTemplates } from '@/lib/ledger-data';
+import {
+  loadAccounts,
+  loadCostObjects,
+  loadCounterparties,
+  loadTemplates,
+} from '@/lib/ledger-data';
 import { periodLabel } from '@/lib/period';
 import { EntryForm } from './EntryForm';
 
@@ -31,7 +36,13 @@ export default async function NewEntryPage() {
     );
   }
   const tenant = { userId: ctx.user.id, officeId: ctx.office.id, companyId: ctx.company.id };
-  const [accounts, templates] = await Promise.all([loadAccounts(tenant), loadTemplates(tenant)]);
+  const [accounts, templates, counterparties, costObjects] = await Promise.all([
+    loadAccounts(tenant),
+    loadTemplates(tenant),
+    loadCounterparties(tenant),
+    loadCostObjects(tenant),
+  ]);
+  const wide = accounts.some((a) => a.needs.counterparty || a.needs.document || a.needs.costObject);
   if (!accounts.some((a) => a.isPostable && a.isActive)) {
     return (
       <div>
@@ -59,7 +70,7 @@ export default async function NewEntryPage() {
   const defaultDate = todayIso >= first && todayIso <= last ? todayIso : last;
 
   return (
-    <div className="max-w-5xl">
+    <div className={wide ? 'max-w-7xl' : 'max-w-5xl'}>
       <h1 className="mb-1 text-xl font-semibold">Нова статия — {ctx.company.name}</h1>
       <p className="mb-4 text-sm text-fg-muted">
         Сумите са в {ctx.period.ledgerCurrency}, отчетната валута на {y} г.
@@ -67,6 +78,8 @@ export default async function NewEntryPage() {
       <EntryForm
         accounts={accounts}
         templates={templates}
+        counterparties={counterparties}
+        costObjects={costObjects}
         period={{ year: y, month: m, today: todayIso, label: periodLabel(ctx.period) }}
         defaultDate={defaultDate}
       />

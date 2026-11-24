@@ -288,3 +288,132 @@ export function journalTable(
     total: ['Общо', '', '', total, ''],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Аналитична справка и извлечение по контрагент (ADR-0014)
+// ---------------------------------------------------------------------------
+export type {
+  AnalyticBy,
+  AnalyticReport,
+  AnalyticReportRow,
+  CounterpartyStatement,
+} from '@kantora/db';
+export { ANALYTIC_BY } from '@kantora/db';
+
+export const analyticReport = (
+  t: Tenant,
+  accountId: string,
+  by: q.AnalyticBy,
+  periodId: string,
+  from: number,
+  to: number,
+) => q.analyticReport(appPool, t, accountId, by, periodId, from, to);
+export const counterpartyStatement = (
+  t: Tenant,
+  counterpartyId: string,
+  periodId: string,
+  from: number,
+  to: number,
+) => q.counterpartyStatement(appPool, t, counterpartyId, periodId, from, to);
+
+export const ANALYTIC_LABEL: Record<q.AnalyticBy, string> = {
+  counterparty: 'по контрагенти',
+  document: 'по документи',
+  cost_object: 'по обекти',
+};
+export const ANALYTIC_RECONCILED =
+  'Равнява се: сборът на редовете е равен на сметката в оборотната ведомост.';
+
+/** What a row of the analytic report is about, in words. */
+export function analyticRowLabel(r: q.AnalyticReportRow, by: q.AnalyticBy): string {
+  if (by === 'cost_object') {
+    return r.cost_object_id ? `${r.cost_object_code} ${r.cost_object_name}` : 'Без обект';
+  }
+  const cp = r.counterparty_id
+    ? `${r.counterparty_name}${r.eik ? ` (${r.eik})` : ''}`
+    : 'Без контрагент';
+  if (by === 'counterparty') return cp;
+  const doc = r.document_number
+    ? `№ ${r.document_number}${r.document_date ? ` от ${isoToBg(r.document_date)}` : ''}`
+    : 'без документ';
+  return `${cp} · ${doc}`;
+}
+
+const signedCols = (header: string) => [
+  { header, kind: 'amount' as const, width: 16 },
+  { header: '', kind: 'text' as const, width: 5 },
+];
+
+export function analyticTable(
+  rep: q.AnalyticReport,
+  by: q.AnalyticBy,
+  meta: RangeMeta,
+): ReportTable {
+  const code = rep.account?.code ?? '';
+  const row = (
+    label: string,
+    s: Pick<q.AnalyticReportRow, 'opening' | 'debit' | 'credit' | 'closing'>,
+  ) => [label, ...balanceParts(s.opening), nz(s.debit), nz(s.credit), ...balanceParts(s.closing)];
+  return {
+    fileName: `analitichna-${code}-${by}-${fileDate(meta.year, meta.from, meta.to)}`,
+    sheetName: `Аналитична ${code}`,
+    title: `Сметка ${code} ${rep.account?.name ?? ''} ${ANALYTIC_LABEL[by]}`,
+    subtitle: `${meta.company} · ${rangeLabel(meta.from, meta.to, meta.year)} · в ${meta.currency}`,
+    columns: [
+      { header: by === 'cost_object' ? 'Обект' : 'Контрагент / документ', kind: 'text', width: 44 },
+      ...signedCols('Начално салдо'),
+      { header: 'Дебит', kind: 'amount', width: 16 },
+      { header: 'Кредит', kind: 'amount', width: 16 },
+      ...signedCols('Крайно салдо'),
+    ],
+    rows: rep.rows.map((r) => row(analyticRowLabel(r, by), r)),
+    total: row('Общо', rep.totals),
+    note: rep.reconciled ? ANALYTIC_RECONCILED : NOT_RECONCILED,
+  };
+}
+
+export function statementTable(st: q.CounterpartyStatement, meta: RangeMeta): ReportTable {
+  const name = st.counterparty?.name ?? '';
+  return {
+    fileName: `izvlechenie-${name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')}-${fileDate(meta.year, meta.from, meta.to)}`,
+    sheetName: 'Извлечение',
+    title: `Извлечение по контрагент ${name}${st.counterparty?.eik ? `, ЕИК ${st.counterparty.eik}` : ''}`,
+    subtitle: `${meta.company} · ${rangeLabel(meta.from, meta.to, meta.year)} · в ${meta.currency}`,
+    columns: [
+      { header: 'Дата', kind: 'text', width: 11 },
+      { header: 'Статия', kind: 'text', width: 8 },
+      { header: 'Сметка', kind: 'text', width: 9 },
+      { header: 'Документ', kind: 'text', width: 22 },
+      { header: 'Основание', kind: 'text', width: 34 },
+      { header: 'Дебит', kind: 'amount', width: 15 },
+      { header: 'Кредит', kind: 'amount', width: 15 },
+    ],
+    rows: [
+      ...st.accounts.map((a) => {
+        const [oa, os] = balanceParts(a.opening);
+        const [ca, cs] = balanceParts(a.closing);
+        return [
+          '',
+          '',
+          a.code,
+          '',
+          `${a.name}: начално ${oa} ${os}, крайно ${ca} ${cs}`.replace(/\s+/g, ' ').trim(),
+          nz(a.debit),
+          nz(a.credit),
+        ];
+      }),
+      ...st.lines.map((l) => [
+        isoToBg(l.entry_date),
+        String(l.number),
+        l.code,
+        l.document_number
+          ? `${l.document_number}${l.document_date ? ` / ${isoToBg(l.document_date)}` : ''}`
+          : '',
+        l.description,
+        l.side === 'D' ? l.amount : '',
+        l.side === 'C' ? l.amount : '',
+      ]),
+    ],
+    strong: st.accounts.map((_, i) => i),
+  };
+}

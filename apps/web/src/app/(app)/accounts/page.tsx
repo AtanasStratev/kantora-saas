@@ -2,6 +2,7 @@ import { can, isRole } from '@kantora/domain';
 import { EmptyState } from '@/components/ui';
 import { getAppContext } from '@/lib/context';
 import { loadAccounts } from '@/lib/ledger-data';
+import { AccountNeed } from '../counterparties/forms';
 import { NewAccountForm } from './NewAccountForm';
 
 export default async function AccountsPage() {
@@ -37,7 +38,8 @@ export default async function AccountsPage() {
         <h1 className="mb-1 text-xl font-semibold">Сметкоплан — {ctx.company.name}</h1>
         <p className="mb-4 text-sm text-fg-muted">
           Шаблонът и вносът на сметкоплана идват с данните от пилотната кантора. Засега сметките се
-          добавят ръчно.
+          добавят ръчно. Отметнатата аналитичност е задължителна при осчетоводяване по сметката (за
+          статиите оттук нататък).
         </p>
         {accounts.length === 0 ? (
           <EmptyState
@@ -55,6 +57,7 @@ export default async function AccountsPage() {
                 <th className="w-28 px-2 py-1 font-normal">Код</th>
                 <th className="px-2 py-1 font-normal">Наименование</th>
                 <th className="w-40 px-2 py-1 font-normal">Вид</th>
+                <th className="px-2 py-1 font-normal">Аналитичност</th>
               </tr>
             </thead>
             <tbody>
@@ -65,6 +68,42 @@ export default async function AccountsPage() {
                   <td className="px-2 py-1 text-xs text-fg-muted">
                     {a.isPostable ? 'за осчетоводяване' : 'групова'}
                     {a.isActive ? '' : ' · неактивна'}
+                  </td>
+                  <td className="px-2 py-1 text-xs">
+                    {!a.isPostable ? null : canEdit ? (
+                      <span
+                        className="flex flex-wrap gap-x-3"
+                        role="group"
+                        aria-label={`Аналитичност на сметка ${a.code}`}
+                      >
+                        <AccountNeed
+                          accountId={a.id}
+                          need="counterparty"
+                          label="контрагент"
+                          checked={a.needs.counterparty}
+                        />
+                        <AccountNeed
+                          accountId={a.id}
+                          need="document"
+                          label="документ"
+                          checked={a.needs.document}
+                        />
+                        <AccountNeed
+                          accountId={a.id}
+                          need="cost_object"
+                          label="обект"
+                          checked={a.needs.costObject}
+                        />
+                      </span>
+                    ) : (
+                      [
+                        a.needs.counterparty && 'контрагент',
+                        a.needs.document && 'документ',
+                        a.needs.costObject && 'обект',
+                      ]
+                        .filter(Boolean)
+                        .join(', ')
+                    )}
                   </td>
                 </tr>
               ))}
