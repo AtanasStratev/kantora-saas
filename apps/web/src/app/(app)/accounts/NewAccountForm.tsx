@@ -12,6 +12,7 @@ export function NewAccountForm() {
   const [busy, setBusy] = useState(false);
   const [isGroup, setIsGroup] = useState(false);
   const [needs, setNeeds] = useState({ counterparty: false, document: false, costObject: false });
+  const [isCurrency, setIsCurrency] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -24,6 +25,7 @@ export function NewAccountForm() {
       name: String(data.get('account-name')),
       isPostable: !isGroup,
       needs: isGroup ? { counterparty: false, document: false, costObject: false } : needs,
+      isCurrency: !isGroup && isCurrency,
     });
     setBusy(false);
     if (r.error) {
@@ -33,6 +35,7 @@ export function NewAccountForm() {
     form.current?.reset();
     // Checkboxes are uncontrolled: a new key resets them with the form.
     setIsGroup(false);
+    setIsCurrency(false);
     setNeeds({ counterparty: false, document: false, costObject: false });
     setFormKey((k) => k + 1);
     form.current?.querySelector<HTMLInputElement>('#account-code')?.focus();
@@ -48,7 +51,7 @@ export function NewAccountForm() {
         <Checkbox label="Групова (не се осчетоводява по нея)" onCheckedChange={setIsGroup} />
         {isGroup ? null : (
           <fieldset className="mb-3">
-            <legend className="mb-1 text-xs text-fg-muted">Задължителна аналитичност</legend>
+            <legend className="mb-1 text-xs text-fg-muted">Аналитичност и валута</legend>
             <Checkbox
               label="Контрагент"
               onCheckedChange={(v) => setNeeds((n) => ({ ...n, counterparty: v }))}
@@ -60,6 +63,10 @@ export function NewAccountForm() {
             <Checkbox
               label="Обект"
               onCheckedChange={(v) => setNeeds((n) => ({ ...n, costObject: v }))}
+            />
+            <Checkbox
+              label="Валутна (парична позиция в чуждестранна валута)"
+              onCheckedChange={setIsCurrency}
             />
           </fieldset>
         )}

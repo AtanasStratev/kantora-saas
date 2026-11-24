@@ -306,3 +306,77 @@ export async function toLedgerCurrency(
         : `сума × ${bg(rate.quote.rate)} ÷ ${rate.quote.units} (лева за ${rate.quote.units} ${currency})`,
   };
 }
+
+/**
+ * A converter for the revaluation at `date` (ADR-0015): the closing rate of every
+ * currency, resolved once, then applied to any amount with the same rules as
+ * toLedgerCurrency (half up to the cent). A currency without a rate is listed, never
+ * guessed.
+ */
+export async function fxConverter(
+  userId: string,
+  date: string,
+  currencies: readonly string[],
+): Promise<
+  | {
+      ok: true;
+      convert: (currency: string, amount: string) => string;
+      rate: (currency: string) => string | null;
+      basis: Record<string, string>;
+    }
+  | { ok: false; message: string }
+> {
+  const era = eraOf(date);
+  const quotes = new Map<string, Parameters<typeof convertWithBnbRate>[1]>();
+  const basis: Record<string, string> = {};
+  const needed = [...new Set(currencies)].filter((c) => c !== era);
+  if (needed.length === 0) {
+    return { ok: true, convert: () => '0.00', rate: () => null, basis };
+  }
+  const missing: string[] = [];
+  const foreign = needed.filter((c) => !(era === 'BGN' && c === 'EUR'));
+  if (needed.includes('EUR') && era === 'BGN') {
+    const peg = await withUser(appPool, userId, async (c) => {
+      const r = await c.query<{ v: string | null }>(
+        `SELECT app.legal_numeric('bgn_per_eur_currency_board', $1)::text AS v`,
+        [date],
+      );
+      return r.rows[0]?.v ?? null;
+    });
+    if (peg) {
+      quotes.set('EUR', { kind: 'bgn_per_units', rate: peg, units: 1 });
+      basis.EUR = `${bg(peg)} лв. за 1 евро (фиксиран курс)`;
+    } else missing.push('EUR');
+  }
+  if (foreign.length > 0) {
+    const day = await fxDay(userId, date);
+    if (!day.ok) return day;
+    const src = day.source === 'ecb' ? 'ЕЦБ' : 'БНБ';
+    const when = day.rateDate.split('-').reverse().join('.');
+    for (const c of foreign) {
+      const r = day.rates.find((x) => x.currency === c);
+      if (!r) {
+        missing.push(c);
+        continue;
+      }
+      quotes.set(c, r.quote);
+      basis[c] =
+        r.quote.kind === 'per_eur'
+          ? `${bg(r.quote.rate)} ${c} за 1 евро (${src}, ${when})`
+          : `${bg(r.quote.rate)} лв. за ${r.quote.units} ${c} (${src}, ${when})`;
+    }
+  }
+  if (missing.length > 0) {
+    return { ok: false, message: `Няма курс за ${missing.join(', ')} към тази дата.` };
+  }
+  return {
+    ok: true,
+    convert: (currency, amount) => {
+      const q = quotes.get(currency);
+      if (!q) throw new Error(`no rate for ${currency}`);
+      return convertWithBnbRate(amount, q).toFixed(2);
+    },
+    rate: (currency) => quotes.get(currency)?.rate ?? null,
+    basis,
+  };
+}

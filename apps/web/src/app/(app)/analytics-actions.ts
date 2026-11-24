@@ -140,7 +140,7 @@ export async function setCostObjectActive(id: string, active: boolean): Promise<
 
 const NeedInput = z.object({
   accountId: z.uuid(),
-  need: z.enum(['counterparty', 'document', 'cost_object']),
+  need: z.enum(['counterparty', 'document', 'cost_object', 'currency']),
   value: z.boolean(),
 });
 
@@ -158,6 +158,7 @@ export async function setAccountNeed(input: z.infer<typeof NeedInput>): Promise<
     counterparty: 'needs_counterparty',
     document: 'needs_document',
     cost_object: 'needs_cost_object',
+    currency: 'is_currency',
   }[p.data.need]; // fixed column names, never user input
   try {
     const n = await withTenant(

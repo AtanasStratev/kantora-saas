@@ -10,6 +10,8 @@ export type AccountRow = {
   isPostable: boolean;
   isActive: boolean;
   needs: AnalyticNeeds;
+  /** Monetary item in a foreign currency (ADR-0015): lines carry currency and amount. */
+  isCurrency: boolean;
 };
 
 export async function loadAccounts(tenant: {
@@ -27,9 +29,10 @@ export async function loadAccounts(tenant: {
       needs_counterparty: boolean;
       needs_document: boolean;
       needs_cost_object: boolean;
+      is_currency: boolean;
     }>(
       `SELECT id, code, name, is_postable, is_active, needs_counterparty, needs_document,
-              needs_cost_object FROM app.account`,
+              needs_cost_object, is_currency FROM app.account`,
     );
     return r.rows
       .map((a) => ({
@@ -38,6 +41,7 @@ export async function loadAccounts(tenant: {
         name: a.name,
         isPostable: a.is_postable,
         isActive: a.is_active,
+        isCurrency: a.is_currency,
         needs: {
           counterparty: a.needs_counterparty,
           document: a.needs_document,

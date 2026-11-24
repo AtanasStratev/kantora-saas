@@ -39,6 +39,7 @@ const NewAccount = z.object({
   needs: z
     .object({ counterparty: z.boolean(), document: z.boolean(), costObject: z.boolean() })
     .default({ counterparty: false, document: false, costObject: false }),
+  isCurrency: z.boolean().default(false),
 });
 
 export async function createAccount(input: z.input<typeof NewAccount>): Promise<Result> {
@@ -50,8 +51,8 @@ export async function createAccount(input: z.input<typeof NewAccount>): Promise<
     await withTenant(appPool, scope.tenant, (c) =>
       c.query(
         `INSERT INTO app.account (office_id, company_id, code, name, is_postable,
-                                  needs_counterparty, needs_document, needs_cost_object)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                                  needs_counterparty, needs_document, needs_cost_object, is_currency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           scope.tenant.officeId,
           scope.tenant.companyId,
@@ -61,6 +62,7 @@ export async function createAccount(input: z.input<typeof NewAccount>): Promise<
           p.data.needs.counterparty,
           p.data.needs.document,
           p.data.needs.costObject,
+          p.data.isPostable && p.data.isCurrency,
         ],
       ),
     );
@@ -95,6 +97,13 @@ const EntryInput = z.object({
           .default(''),
         documentDate: z.union([z.iso.date(), z.literal('')]).default(''),
         costObjectId: z.union([z.uuid(), z.literal('')]).default(''),
+        currency: z
+          .union([
+            z.string().regex(/^[A-Z]{3}$/, 'Валутата е 3 главни букви, напр. USD.'),
+            z.literal(''),
+          ])
+          .default(''),
+        currencyAmount: z.string().max(40).default(''),
       }),
     )
     .max(500),
@@ -121,6 +130,8 @@ export async function postEntry(
     documentNumber: string | null;
     documentDate: string | null;
     costObjectId: string | null;
+    currency: string | null;
+    currencyAmount: string | null;
   };
   const lines: Line[] = [];
   const problems: string[] = [];
@@ -138,6 +149,15 @@ export async function postEntry(
       problems.push(`Ред ${i + 1}: ${amt.error}`);
       return;
     }
+    let currencyAmount: string | null = null;
+    if (l.currency) {
+      const ca = parseAmount(l.currencyAmount);
+      if (!ca.ok || l.currencyAmount.trim() === '') {
+        problems.push(`Ред ${i + 1}: въведете сумата във ${l.currency}.`);
+        return;
+      }
+      currencyAmount = ca.value;
+    }
     lines.push({
       accountId: l.accountId,
       accountCode: l.accountCode,
@@ -148,6 +168,8 @@ export async function postEntry(
       documentNumber: l.documentNumber || null,
       documentDate: l.documentDate || null,
       costObjectId: l.costObjectId || null,
+      currency: l.currency || null,
+      currencyAmount,
     });
   });
   problems.push(...postingProblems(lines).map((p) => p.message));
@@ -186,6 +208,23 @@ export async function postEntry(
           },
         })),
       );
+      const accountRows = new Map(
+        (
+          await c.query<{ id: string; code: string; is_currency: boolean }>(
+            'SELECT id, code, is_currency FROM app.account WHERE id = ANY($1)',
+            [lines.map((l) => l.accountId)],
+          )
+        ).rows.map((a) => [a.id, a]),
+      );
+      lines.forEach((l, i) => {
+        const a = accountRows.get(l.accountId);
+        if (a?.is_currency && !l.currency) {
+          missing.push({
+            code: 'NO_CURRENCY',
+            message: `Ред ${i + 1}: сметка ${a.code} е валутна: въведете валута и сума във валута.`,
+          });
+        }
+      });
       if (missing.length) {
         return { error: 'Статията не е осчетоводена.', problems: missing.map((p) => p.message) };
       }
@@ -216,8 +255,8 @@ export async function postEntry(
         await c.query(
           `INSERT INTO app.journal_line (office_id, company_id, entry_id, line_no, account_id, side,
                                          amount, description, counterparty_id, document_number,
-                                         document_date, cost_object_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                                         document_date, cost_object_id, doc_currency, doc_amount)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             scope.tenant.officeId,
             scope.tenant.companyId,
@@ -231,6 +270,8 @@ export async function postEntry(
             l.documentNumber,
             l.documentDate,
             l.costObjectId,
+            l.currency,
+            l.currencyAmount,
           ],
         );
       }

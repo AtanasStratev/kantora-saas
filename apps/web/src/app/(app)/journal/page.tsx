@@ -39,6 +39,9 @@ export default async function JournalPage() {
           <Link href="/journal/templates" className="text-accent underline">
             Шаблони
           </Link>
+          <Link href="/journal/revaluation" className="text-accent underline">
+            Преоценка на валути
+          </Link>
           {canPost ? (
             <Link
               href="/journal/new"

@@ -94,12 +94,19 @@ export default async function AccountsPage() {
                           label="обект"
                           checked={a.needs.costObject}
                         />
+                        <AccountNeed
+                          accountId={a.id}
+                          need="currency"
+                          label="валутна"
+                          checked={a.isCurrency}
+                        />
                       </span>
                     ) : (
                       [
                         a.needs.counterparty && 'контрагент',
                         a.needs.document && 'документ',
                         a.needs.costObject && 'обект',
+                        a.isCurrency && 'валутна',
                       ]
                         .filter(Boolean)
                         .join(', ')

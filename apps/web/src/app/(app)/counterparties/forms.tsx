@@ -148,7 +148,7 @@ export function AccountNeed({
   checked,
 }: {
   accountId: string;
-  need: 'counterparty' | 'document' | 'cost_object';
+  need: 'counterparty' | 'document' | 'cost_object' | 'currency';
   label: string;
   checked: boolean;
 }) {

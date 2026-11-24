@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Button, ErrorText, Kbd, inputClass } from '@/components/ui';
 import type { AccountRow, CostObjectRow, CounterpartyRow, TemplateRow } from '@/lib/ledger-data';
 import { createCounterparty } from '../../analytics-actions';
+import { convertForEntry } from '../../fx-actions';
 import { postEntry, saveTemplate } from '../../ledger-actions';
 
 // hint: the side a template expects when it carries no fixed amount.
@@ -30,6 +31,11 @@ type Row = {
   objText: string;
   objId: string;
   memo: string;
+  /** Foreign currency of the line (currency accounts) and the amount in it. */
+  cur: string;
+  curAmt: string;
+  /** How the ledger amount was computed from the currency amount, for the screen. */
+  fxNote: string;
   hint?: 'D' | 'C';
 };
 const emptyRow = (): Row => ({
@@ -44,6 +50,9 @@ const emptyRow = (): Row => ({
   objText: '',
   objId: '',
   memo: '',
+  cur: '',
+  curAmt: '',
+  fxNote: '',
 });
 
 // Column indices; analytic columns are shown only when some account needs them.
@@ -55,6 +64,8 @@ const DOC = 4;
 const DDATE = 5;
 const OBJ = 6;
 const MEMO = 7;
+const CUR = 8;
+const CAMT = 9;
 type ComboCol = typeof ACC | typeof CP | typeof OBJ;
 type Option = { id: string; label: string; sub?: string; create?: true };
 
@@ -117,9 +128,12 @@ export function EntryForm({
     cp: postable.some((a) => a.needs.counterparty),
     doc: postable.some((a) => a.needs.document),
     obj: postable.some((a) => a.needs.costObject),
+    cur: postable.some((a) => a.isCurrency),
   };
+  // Display (and Enter) order: the currency comes before the amount it converts into.
   const cols = [
     ACC,
+    ...(show.cur ? [CUR, CAMT] : []),
     DEB,
     CRE,
     ...(show.cp ? [CP] : []),
@@ -165,7 +179,14 @@ export function EntryForm({
   }
 
   const isEmpty = (r: Row) =>
-    !r.accountText && !r.debit && !r.credit && !r.memo && !r.cpText && !r.docNo && !r.objText;
+    !r.accountText &&
+    !r.debit &&
+    !r.credit &&
+    !r.memo &&
+    !r.cpText &&
+    !r.docNo &&
+    !r.objText &&
+    !r.curAmt;
 
   /** Adds the template's lines after the rows already typed; nothing typed is lost. */
   function applyTemplate(t: TemplateRow) {
@@ -261,7 +282,9 @@ export function EntryForm({
   function nextCol(row: number, col: number): number | null {
     const r = rows[row];
     const needs = r ? needsOf(r) : undefined;
-    for (const c of cols.filter((x) => x > col)) {
+    const isCur = r ? !!byId.get(r.accountId)?.isCurrency : false;
+    for (const c of cols.slice(cols.indexOf(col) + 1)) {
+      if ((c === CUR || c === CAMT) && !(isCur || r?.cur)) continue;
       if (c === CP && !(needs?.counterparty || r?.cpText)) continue;
       if ((c === DOC || c === DDATE) && !(needs?.document || r?.docNo)) continue;
       if (c === OBJ && !(needs?.costObject || r?.objText)) continue;
@@ -285,8 +308,14 @@ export function EntryForm({
     }
     if (col === ACC) {
       const a = byId.get(o.id);
-      update(row, { accountId: o.id, accountText: a ? `${a.code} ${a.name}` : o.label });
-      return focusCell(row, DEB);
+      // A currency account keeps the currency of the row above as a starting point.
+      const prevCur = rows
+        .slice(0, row)
+        .reverse()
+        .find((x) => x.cur)?.cur;
+      const cur = a?.isCurrency ? rows[row]?.cur || prevCur || '' : (rows[row]?.cur ?? '');
+      update(row, { accountId: o.id, accountText: a ? `${a.code} ${a.name}` : o.label, cur });
+      return focusCell(row, a?.isCurrency && show.cur ? CUR : DEB);
     }
     if (col === CP) {
       const c = counterparties.find((x) => x.id === o.id);
@@ -334,6 +363,23 @@ export function EntryForm({
       focusCell(Math.max(0, row - 1), col);
       return;
     }
+    if (
+      e.ctrlKey &&
+      ((e.key === 'ArrowRight' && col === DEB) || (e.key === 'ArrowLeft' && col === CRE))
+    ) {
+      // Move the amount to the other side (Ctrl+→ to the credit, Ctrl+← to the debit).
+      e.preventDefault();
+      const r = rows[row];
+      if (!r) return;
+      update(row, { debit: r.credit, credit: r.debit });
+      focusCell(row, col === DEB ? CRE : DEB);
+      return;
+    }
+    if (e.key === 'Enter' && col === CAMT) {
+      e.preventDefault();
+      void convertRow(row);
+      return;
+    }
     if (e.key === 'F9' && (col === DEB || col === CRE)) {
       // Fill the amount that balances the entry into this cell.
       e.preventDefault();
@@ -364,6 +410,40 @@ export function EntryForm({
       e.preventDefault();
       focusCell(row - 1, col);
     }
+  }
+
+  /**
+   * Converts the row's currency amount at the rate of the entry date and puts it on the
+   * side that balances the entry (debit when nothing else is typed). Ctrl+→/← moves it.
+   */
+  async function convertRow(row: number) {
+    const r = rows[row];
+    if (!r) return;
+    if (!r.cur.trim() || !r.curAmt.trim()) return nextCell(row, CAMT);
+    if (!dateIso) {
+      setError('Първо въведете вярна дата на статията.');
+      return;
+    }
+    const res = await convertForEntry({ date: dateIso, currency: r.cur, amount: r.curAmt });
+    if (res.error !== undefined) {
+      update(row, { fxNote: '' });
+      setError(`Ред ${row + 1}: ${res.error}`);
+      return;
+    }
+    setError('');
+    let others = new Decimal(0);
+    rows.forEach((x, i) => {
+      if (i === row) return;
+      others = others.plus(amountOf(x.debit) ?? 0).minus(amountOf(x.credit) ?? 0);
+    });
+    const side = others.isPositive() && !others.isZero() ? 'C' : 'D';
+    const amount = formatAmount(res.result);
+    update(row, {
+      debit: side === 'D' ? amount : '',
+      credit: side === 'C' ? amount : '',
+      fxNote: res.basis,
+    });
+    focusCell(row, side === 'D' ? DEB : CRE);
   }
 
   function formatCell(row: number, field: 'debit' | 'credit') {
@@ -415,6 +495,12 @@ export function EntryForm({
       [(r) => !!r.cpText && !r.cpId, 'изберете контрагент от списъка или създайте нов.', CP],
       [(r) => !!r.objText && !r.objId, 'изберете обект от списъка.', OBJ],
       [(r) => docDateIso(r.docDateText) === undefined, 'невалидна дата на документа.', DDATE],
+      [
+        (r) => !!byId.get(r.accountId)?.isCurrency && !/^[A-Z]{3}$/.test(r.cur),
+        'валутна сметка: въведете валута (3 букви, напр. USD).',
+        CUR,
+      ],
+      [(r) => !!r.cur && !r.curAmt.trim(), 'въведете сумата във валута.', CAMT],
     ];
     for (const [bad, msg, col] of check) {
       const i = filled.findIndex(bad);
@@ -439,6 +525,8 @@ export function EntryForm({
         documentNumber: x.docNo.trim(),
         documentDate: docDateIso(x.docDateText) ?? '',
         costObjectId: x.objId,
+        currency: x.cur,
+        currencyAmount: x.cur ? x.curAmt : '',
       })),
     });
     setBusy(false);
@@ -583,6 +671,12 @@ export function EntryForm({
           <tr className="border-b border-line-strong text-left text-xs text-fg-muted">
             <th className="w-8 px-1 py-1 text-right font-normal">№</th>
             <th className="px-1 py-1 font-normal">Сметка</th>
+            {show.cur ? (
+              <>
+                <th className="w-16 px-1 py-1 font-normal">Валута</th>
+                <th className="w-32 px-1 py-1 text-right font-normal">Сума във валута</th>
+              </>
+            ) : null}
             <th className="w-32 px-1 py-1 text-right font-normal">Дебит</th>
             <th className="w-32 px-1 py-1 text-right font-normal">Кредит</th>
             {show.cp ? <th className="px-1 py-1 font-normal">Контрагент</th> : null}
@@ -612,6 +706,41 @@ export function EntryForm({
                   (t) => update(i, { accountText: t, accountId: '' }),
                   false,
                 )}
+                {show.cur ? (
+                  <>
+                    <td className="px-1 py-1">
+                      <input
+                        ref={ref(i, CUR)}
+                        aria-label={`Ред ${i + 1}, валута`}
+                        aria-required={byId.get(r.accountId)?.isCurrency || undefined}
+                        aria-invalid={r.cur && !/^[A-Z]{3}$/.test(r.cur) ? true : undefined}
+                        maxLength={3}
+                        className={`${inputClass} w-full uppercase`}
+                        value={r.cur}
+                        onChange={(e) =>
+                          update(i, { cur: e.target.value.toUpperCase(), fxNote: '' })
+                        }
+                        onKeyDown={(e) => onCellKey(e, i, CUR)}
+                      />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input
+                        ref={ref(i, CAMT)}
+                        aria-label={`Ред ${i + 1}, сума във валута`}
+                        inputMode="decimal"
+                        aria-invalid={amountOf(r.curAmt) === null ? true : undefined}
+                        className={`${inputClass} w-full text-right tabular-nums`}
+                        value={r.curAmt}
+                        onChange={(e) => update(i, { curAmt: e.target.value, fxNote: '' })}
+                        onBlur={() => {
+                          const v = parseAmount(r.curAmt);
+                          if (r.curAmt.trim() && v.ok) update(i, { curAmt: formatAmount(v.value) });
+                        }}
+                        onKeyDown={(e) => onCellKey(e, i, CAMT)}
+                      />
+                    </td>
+                  </>
+                ) : null}
                 {(['debit', 'credit'] as const).map((f) => {
                   const col = f === 'debit' ? DEB : CRE;
                   return (
@@ -702,6 +831,7 @@ export function EntryForm({
           <tr className="text-sm">
             <td />
             <td className="px-1 py-2 text-right text-fg-muted">Общо</td>
+            {show.cur ? <td colSpan={2} /> : null}
             <td
               className="px-2 py-2 text-right font-semibold tabular-nums"
               data-testid="total-debit"
@@ -718,7 +848,7 @@ export function EntryForm({
               className="px-2 py-2"
               role="status"
               data-testid="balance-status"
-              colSpan={cols.length - 3}
+              colSpan={cols.length - 3 - (show.cur ? 2 : 0)}
             >
               {totals.invalid ? (
                 <span className="text-negative">Има невалидна сума</span>
@@ -737,6 +867,17 @@ export function EntryForm({
         </tfoot>
       </table>
 
+      {rows.some((r) => r.fxNote) ? (
+        <ul className="mt-2 text-xs text-fg-muted" aria-label="Преизчисляване на валутните суми">
+          {rows.map((r, i) =>
+            r.fxNote ? (
+              <li key={i}>
+                Ред {i + 1}: {r.fxNote}
+              </li>
+            ) : null,
+          )}
+        </ul>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-4">
         <Button inline disabled={busy} onClick={() => void submit()}>
           {busy ? 'Осчетоводяване…' : 'Осчетоводи'} <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
@@ -750,7 +891,8 @@ export function EntryForm({
         <span className="text-xs text-fg-muted">
           <Kbd>Enter</Kbd> следваща клетка · <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> редове · <Kbd>Ctrl</Kbd>+<Kbd>D</Kbd> копира реда отгоре · <Kbd>Ctrl</Kbd>+
-          <Kbd>Delete</Kbd> маха реда
+          <Kbd>Delete</Kbd> маха реда · <Kbd>Ctrl</Kbd>+<Kbd>→</Kbd>/<Kbd>←</Kbd> сумата на другата
+          страна
         </span>
       </div>
       <div className="mt-3">
