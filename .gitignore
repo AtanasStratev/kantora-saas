@@ -17,3 +17,6 @@ Thumbs.db
 apps/web/next-env.d.ts
 db/dev/*.local.json
 backups/
+
+# Pilot data (real company data): never committed
+pilot-data/
