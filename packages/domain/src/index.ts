@@ -7,3 +7,4 @@ export * from './journal';
 export * from './templates';
 export * from './fx';
 export * from './ecb';
+export * from './analytics';

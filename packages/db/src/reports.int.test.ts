@@ -5,14 +5,22 @@
  *   - the general ledger equals the trial balance account by account, and each account's
  *     lines equal its account card;
  *   - the chronological register holds every posted line once, and its totals equal the
- *     trial balance turnover.
+ *     trial balance turnover;
+ *   - the analytic report of every account, by counterparty, document and object, adds up
+ *     to the trial balance row and equals an independent computation per key; the
+ *     counterparty statement equals the analytic report.
  * Drafts, reversals and multi-line entries are included on purpose; another office sees nothing.
  */
 import { randomUUID } from 'node:crypto';
-import { trialBalance as domainTrialBalance, type PostedLine } from '@kantora/domain';
+import {
+  analyticBalance,
+  trialBalance as domainTrialBalance,
+  type PostedLine,
+} from '@kantora/domain';
 import Decimal from 'decimal.js';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ANALYTIC_BY, analyticReport, counterpartyStatement } from './analytic-reports';
 import {
   accountCard,
   chronologicalRegister,
@@ -77,6 +85,8 @@ async function company(): Promise<{
 }
 
 let w: Awaited<ReturnType<typeof company>>;
+const cps: string[] = [];
+const objs: string[] = [];
 
 beforeAll(async () => {
   w = await company();
@@ -87,6 +97,25 @@ beforeAll(async () => {
     return new Decimal(n).div(100).toFixed(2);
   };
   const posted: string[] = [];
+  await withTenant(app, w.t, async (c) => {
+    for (const name of ['Алфа', 'Бета', 'Гама']) {
+      const r = await c.query<{ id: string }>(
+        'INSERT INTO app.counterparty (office_id, company_id, name) VALUES ($1, $2, $3) RETURNING id',
+        [w.t.officeId, w.t.companyId, name],
+      );
+      cps.push(r.rows[0]!.id);
+    }
+    for (const code of ['О1', 'О2']) {
+      const r = await c.query<{ id: string }>(
+        'INSERT INTO app.cost_object (office_id, company_id, code, name) VALUES ($1, $2, $3, $3) RETURNING id',
+        [w.t.officeId, w.t.companyId, code],
+      );
+      objs.push(r.rows[0]!.id);
+    }
+  });
+  // About a quarter of the lines have no analytic, so "without" rows are exercised too.
+  const maybe = <T>(xs: readonly T[]): T | null =>
+    rnd() < 0.25 ? null : xs[Math.floor(rnd() * xs.length)]!;
   // One transaction: Dt = Кт is checked at commit for every entry.
   await withTenant(app, w.t, async (c) => {
     for (let i = 0; i < 120; i++) {
@@ -115,10 +144,28 @@ beforeAll(async () => {
       const id = e.rows[0]!.id;
       let n = 0;
       for (const [code, side, amount] of lines) {
+        // Some document lines carry a date, some only the number (as payments do): the
+        // analytic report must still keep one row per document.
+        const doc = maybe(['Ф-1', 'Ф-2', 'Ф-3']);
+        const docDate = doc !== null && rnd() < 0.5 ? date : null;
         await c.query(
-          `INSERT INTO app.journal_line (office_id, company_id, entry_id, line_no, account_id, side, amount, description)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [w.t.officeId, w.t.companyId, id, ++n, w.acc[code], side, amount, n === 2 ? 'ред' : ''],
+          `INSERT INTO app.journal_line (office_id, company_id, entry_id, line_no, account_id, side, amount,
+                                         description, counterparty_id, document_number, document_date, cost_object_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            w.t.officeId,
+            w.t.companyId,
+            id,
+            ++n,
+            w.acc[code],
+            side,
+            amount,
+            n === 2 ? 'ред' : '',
+            maybe(cps),
+            doc,
+            docDate,
+            maybe(objs),
+          ],
         );
       }
       // Every 10th entry stays a draft: not in the books, not in any report.
@@ -141,7 +188,14 @@ beforeAll(async () => {
 }, 120_000);
 
 /** Raw posted lines, read without any report code. */
-async function rawLines(): Promise<(PostedLine & { month: number; entryId: string })[]> {
+type RawLine = PostedLine & {
+  month: number;
+  entryId: string;
+  cp: string | null;
+  doc: string | null;
+  obj: string | null;
+};
+async function rawLines(): Promise<RawLine[]> {
   return withTenant(app, w.t, async (c) =>
     (
       await c.query<{
@@ -151,9 +205,13 @@ async function rawLines(): Promise<(PostedLine & { month: number; entryId: strin
         date: string;
         month: number;
         entry_id: string;
+        cp: string | null;
+        doc: string | null;
+        obj: string | null;
       }>(
         `SELECT a.code, l.side, l.amount::text AS amount, to_char(e.entry_date, 'YYYY-MM-DD') AS date,
-                extract(month FROM e.entry_date)::int AS month, e.id AS entry_id
+                extract(month FROM e.entry_date)::int AS month, e.id AS entry_id,
+                l.counterparty_id AS cp, l.document_number AS doc, l.cost_object_id AS obj
          FROM app.journal_line l JOIN app.journal_entry e ON e.id = l.entry_id
          JOIN app.account a ON a.id = l.account_id WHERE e.status = 'posted'`,
       )
@@ -164,6 +222,9 @@ async function rawLines(): Promise<(PostedLine & { month: number; entryId: strin
       date: r.date,
       month: r.month,
       entryId: r.entry_id,
+      cp: r.cp,
+      doc: r.doc,
+      obj: r.obj,
     })),
   );
 }
@@ -242,6 +303,68 @@ describe.each(RANGES)('months %i–%i', (from, to) => {
     expect(reg.totals.d).toBe(reg.totals.c);
     expect(reg.totals.d).toBe(new Decimal(tb.totals.td).toFixed(2));
     expect(reg.totals.c).toBe(new Decimal(tb.totals.tc).toFixed(2));
+  });
+
+  it('analytic report of every account and grouping = trial balance row = per-key computation', async () => {
+    const tb = await trialBalance(app, w.t, pid(), from, to);
+    const raw = await rawLines();
+    const keyOf = {
+      counterparty: (l: RawLine) => `${l.cp ?? '-'}`,
+      document: (l: RawLine) => `${l.cp ?? '-'}|${l.doc ?? '-'}`,
+      cost_object: (l: RawLine) => `${l.obj ?? '-'}`,
+    } as const;
+    for (const r of tb.rows) {
+      for (const by of ANALYTIC_BY) {
+        const rep = await analyticReport(app, w.t, r.account_id, by, pid(), from, to);
+        const tag = `${r.code} by ${by}`;
+        expect(rep.reconciled, tag).toBe(true);
+        expect(new Decimal(rep.totals.opening).eq(new Decimal(r.od).minus(r.oc)), tag).toBe(true);
+        expect(new Decimal(rep.totals.debit).eq(r.td), tag).toBe(true);
+        expect(new Decimal(rep.totals.credit).eq(r.tc), tag).toBe(true);
+        expect(new Decimal(rep.totals.closing).eq(new Decimal(r.cd).minus(r.cc)), tag).toBe(true);
+
+        const expected = analyticBalance(
+          raw
+            .filter((l) => l.accountCode === r.code)
+            .map((l) => ({ key: keyOf[by](l), date: l.date, side: l.side, amount: l.amount })),
+          iso(from, 1),
+          iso(to, lastDay(to)),
+        );
+        const got = rep.rows
+          .map((x) => ({
+            key:
+              by === 'cost_object'
+                ? `${x.cost_object_id ?? '-'}`
+                : by === 'document'
+                  ? `${x.counterparty_id ?? '-'}|${x.document_number ?? '-'}`
+                  : `${x.counterparty_id ?? '-'}`,
+            opening: x.opening,
+            debit: x.debit,
+            credit: x.credit,
+            closing: x.closing,
+          }))
+          .sort((a, b) => a.key.localeCompare(b.key));
+        expect(got, tag).toEqual(expected);
+      }
+    }
+  });
+
+  it('counterparty statement = the analytic report rows of that counterparty', async () => {
+    const tb = await trialBalance(app, w.t, pid(), from, to);
+    for (const cp of cps) {
+      const st = await counterpartyStatement(app, w.t, cp, pid(), from, to);
+      const fromReports = [];
+      for (const r of tb.rows) {
+        const rep = await analyticReport(app, w.t, r.account_id, 'counterparty', pid(), from, to);
+        const row = rep.rows.find((x) => x.counterparty_id === cp);
+        if (row) fromReports.push([r.code, row.opening, row.debit, row.credit, row.closing]);
+      }
+      expect(st.accounts.map((a) => [a.code, a.opening, a.debit, a.credit, a.closing])).toEqual(
+        fromReports,
+      );
+      const raw = (await rawLines()).filter((l) => l.cp === cp && l.month >= from && l.month <= to);
+      expect(st.lines.length).toBe(raw.length);
+    }
   });
 });
 
