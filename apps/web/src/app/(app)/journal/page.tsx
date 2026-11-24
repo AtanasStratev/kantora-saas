@@ -42,6 +42,9 @@ export default async function JournalPage() {
           <Link href="/journal/revaluation" className="text-accent underline">
             Преоценка на валути
           </Link>
+          <Link href="/journal/euro-conversion" className="text-accent underline">
+            Превалутиране BGN → EUR
+          </Link>
           {canPost ? (
             <Link
               href="/journal/new"
