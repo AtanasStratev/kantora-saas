@@ -55,9 +55,12 @@ test.describe('VAT documents, keyboard first', () => {
     // The form: without a verified rate it says so and does not post.
     await page.goto('/vat/new');
     await expect(page.getByLabel('Покупка или продажба')).toBeFocused();
-    await expect(page.getByRole('alert')).toContainText(
-      'Няма въведени ставки на ДДС от официален източник',
-    );
+    // Not getByRole('alert') alone: Next.js has its own (empty) route announcer alert.
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'Няма въведени ставки на ДДС от официален източник' }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: /Осчетоводи/ })).toBeDisabled();
     await page.getByLabel('Ред 1, сметка').selectOption({ label: '601 Разходи за материали' });
     await page.getByLabel('Ред 1, данъчна основа').fill('100');
