@@ -69,9 +69,10 @@ export function ImportForm({ years, defaultYear }: { years: number[]; defaultYea
             }}
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs text-fg-muted">
-          Начални салда за година
+        <div className="flex flex-col gap-1 text-xs text-fg-muted">
+          <label htmlFor="imp-1">Начални салда за година</label>
           <select
+            id="imp-1"
             className={inputClass}
             value={year}
             onChange={(e) => {
@@ -85,7 +86,7 @@ export function ImportForm({ years, defaultYear }: { years: number[]; defaultYea
               </option>
             ))}
           </select>
-        </label>
+        </div>
         <Button
           inline
           variant={checked ? 'secondary' : 'primary'}

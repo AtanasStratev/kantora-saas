@@ -18,6 +18,7 @@ const NAV = [
   { href: '/', label: 'Начало', key: 'goHome' as const },
   { href: '/companies', label: 'Фирми', key: 'goCompanies' as const },
   { href: '/journal', label: 'Статии', key: 'goJournal' as const },
+  { href: '/vat', label: 'Документи по ДДС', key: 'goVat' as const },
   { href: '/reports/trial-balance', label: 'Оборотна ведомост', key: 'goTrialBalance' as const },
   { href: '/reports/general-ledger', label: 'Главна книга', key: 'goGeneralLedger' as const },
   { href: '/reports/register', label: 'Хронологичен регистър', key: 'goRegister' as const },
@@ -107,6 +108,7 @@ export function Shell({ ctx, children }: { ctx: AppContext; children: ReactNode 
           KeyC: '/counterparties',
           KeyO: '/cost-objects',
           KeyI: '/import',
+          KeyV: '/vat',
           KeyK: '/rates',
         }[e.code];
         if (target) {

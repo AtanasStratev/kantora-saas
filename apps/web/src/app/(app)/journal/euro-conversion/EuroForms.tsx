@@ -1,5 +1,4 @@
 'use client';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button, ErrorText, Kbd, inputClass } from '@/components/ui';
@@ -89,7 +88,6 @@ export function ConvertForm({
   const [v, setV] = useState(defaults);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState<{ id: string; number: number } | null>(null);
 
   async function submit() {
     setError('');
@@ -108,7 +106,8 @@ export function ConvertForm({
       setError(r.error);
       return;
     }
-    setDone({ id: r.entryId, number: r.number });
+    // After the refresh this form is gone; the page shows the confirmation.
+    router.replace(`/journal/euro-conversion?posted=${r.entryId}`);
     router.refresh();
   }
 
@@ -152,15 +151,6 @@ export function ConvertForm({
         {select('equity', 'euro-equity', 'Разлики на собствения капитал (чл. 48, ал. 6)')}
       </div>
       <ErrorText>{error}</ErrorText>
-      {done ? (
-        <p role="status" className="mb-2 text-sm text-positive">
-          Салдата са превалутирани:{' '}
-          <Link className="text-accent underline" href={`/journal/${done.id}`}>
-            статия № {done.number}
-          </Link>
-          .
-        </p>
-      ) : null}
       <Button inline type="submit" disabled={busy || disabled}>
         {busy ? 'Превалутиране…' : 'Превалутирай салдата'} <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
       </Button>

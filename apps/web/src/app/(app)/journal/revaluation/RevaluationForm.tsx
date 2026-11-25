@@ -1,5 +1,4 @@
 'use client';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button, ErrorText, Kbd, inputClass } from '@/components/ui';
@@ -25,7 +24,6 @@ export function RevaluationForm({
   const [loss, setLoss] = useState(defaultLoss);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState<{ id: string; number: number } | null>(null);
 
   async function submit() {
     setError('');
@@ -40,7 +38,9 @@ export function RevaluationForm({
       setError(r.error);
       return;
     }
-    setDone({ id: r.entryId, number: r.number });
+    // The page shows the confirmation itself: after the refresh this form is gone
+    // (nothing is left to post).
+    router.replace(`/journal/revaluation?posted=${r.entryId}`);
     router.refresh();
   }
 
@@ -93,15 +93,6 @@ export function RevaluationForm({
         )}
       </div>
       <ErrorText>{error}</ErrorText>
-      {done ? (
-        <p role="status" className="mb-2 text-sm text-positive">
-          Преоценката е осчетоводена:{' '}
-          <Link className="text-accent underline" href={`/journal/${done.id}`}>
-            статия № {done.number}
-          </Link>
-          .
-        </p>
-      ) : null}
       <Button inline type="submit" disabled={busy}>
         {busy ? 'Осчетоводяване…' : 'Осчетоводи преоценката'} <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd>
       </Button>

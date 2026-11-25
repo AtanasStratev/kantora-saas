@@ -22,6 +22,7 @@ export type ShortcutId =
   | 'goCounterparties'
   | 'goCostObjects'
   | 'goImport'
+  | 'goVat'
   | 'goRates'
   | 'newEntry'
   | 'entryTemplate'
@@ -117,6 +118,13 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['g', 'i'],
     sequence: true,
     label: 'Към вноса от Excel',
+    group: 'Навигация',
+  },
+  {
+    id: 'goVat',
+    keys: ['g', 'v'],
+    sequence: true,
+    label: 'Към документите по ДДС',
     group: 'Навигация',
   },
   {

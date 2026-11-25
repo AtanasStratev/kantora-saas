@@ -21,7 +21,12 @@ const signed = (v: string) => {
  * ADR-0015). Shows what will be posted; posting re-reads the positions in the same
  * transaction as the entry.
  */
-export default async function RevaluationPage() {
+export default async function RevaluationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ posted?: string }>;
+}) {
+  const { posted } = await searchParams;
   const ctx = await getAppContext();
   const role = ctx.office?.role;
   if (!ctx.office || !ctx.company || !ctx.period) {
@@ -211,6 +216,15 @@ export default async function RevaluationPage() {
         ) : null}
       </table>
 
+      {posted && runs.some((r) => r.entry_id === posted) ? (
+        <p role="status" className="mb-3 text-sm text-positive">
+          Преоценката е осчетоводена:{' '}
+          <Link className="text-accent underline" href={`/journal/${posted}`}>
+            статия № {runs.find((r) => r.entry_id === posted)?.number}
+          </Link>
+          .
+        </p>
+      ) : null}
       {read.period.locked ? (
         <p className="text-sm text-fg-muted">Периодът е заключен.</p>
       ) : !canPost ? null : preview && preview.lines.length === 0 ? (

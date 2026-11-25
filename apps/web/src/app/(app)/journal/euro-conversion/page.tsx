@@ -25,7 +25,12 @@ const signed = (v: Decimal.Value, cur: string) => {
  * position of 31.12 of the BGN year converted on its own, posted as the opening balances
  * of the EUR year; the rounding to income/expense, the equity part to equity.
  */
-export default async function EuroConversionPage() {
+export default async function EuroConversionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ posted?: string }>;
+}) {
+  const { posted } = await searchParams;
   const ctx = await getAppContext();
   const role = ctx.office?.role;
   if (!ctx.office || !ctx.company) {
@@ -131,9 +136,18 @@ export default async function EuroConversionPage() {
       <p className="mb-3 text-sm">
         От 31.12.{st.from.year} (лева) към 01.01.{st.to.year} (евро).
       </p>
+      {st.run && posted === st.run.entryId ? (
+        <p role="status" className="mb-3 text-sm text-positive">
+          Салдата са превалутирани:{' '}
+          <Link className="text-accent underline" href={`/journal/${st.run.entryId}`}>
+            статия № {st.run.number}
+          </Link>
+          .
+        </p>
+      ) : null}
       {st.run ? (
         <p
-          role="status"
+          role="note"
           className={`mb-3 text-sm ${st.run.stale ? 'text-warning' : 'text-positive'}`}
         >
           Превалутирането е направено:{' '}
