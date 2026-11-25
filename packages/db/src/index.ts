@@ -4,3 +4,4 @@ export * from './analytic-reports';
 export * from './revaluation';
 export * from './euro-conversion';
 export * from './import';
+export * from './vat';

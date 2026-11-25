@@ -87,6 +87,17 @@ export function convertWithBnbRate(amount: DecimalInput, quote: BnbQuote): Decim
 }
 
 /**
+ * VAT of a line: net × rate% rounded to the cent, half up. The rate comes from
+ * legal_parameter (never a constant in the code). PENDING VERIFICATION: the rounding rule
+ * and whether VAT is rounded per line or per document must be checked against ЗДДС/ППЗДДС
+ * when their texts are in docs/legal/vat (ADR-0018); until then this is the general rule
+ * of rounding to the cent used everywhere else.
+ */
+export function vatAmount(net: DecimalInput, ratePercent: DecimalInput): Decimal {
+  return roundHalfUp(toDecimal(net).times(toDecimal(ratePercent)).dividedBy(100), 2);
+}
+
+/**
  * An amount from a numeric Excel cell. Excel stores binary floating point, so 1234.56 can
  * arrive as "1234.5599999999999". Such a value is the 2-decimal amount it displays when it
  * is within 1e-9 of it; anything else really has more than 2 decimals and is refused (null)
