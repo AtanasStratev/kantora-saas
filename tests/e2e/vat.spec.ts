@@ -5,11 +5,10 @@ import { OWNER_STATE } from './owner';
 
 test.use({ storageState: OWNER_STATE });
 
-// Account codes are illustrative test data. No VAT rate is in the program until the text
-// of ЗДДС is in docs/legal/vat, so posting must be refused honestly (ADR-0018); the
-// posting itself is covered by packages/db/src/vat.int.test.ts with a fictitious rate.
+// Account codes and the counterparty are illustrative test data. The VAT rate is the one
+// stored from ЗДДС чл. 66, ал. 1 (migration 20261129100000, source in docs/legal/vat).
 test.describe('VAT documents, keyboard first', () => {
-  test('settings, the document form without verified rates, three themes', async ({
+  test('settings, a purchase invoice at the standard rate, three themes', async ({
     page,
     context,
   }) => {
@@ -52,21 +51,37 @@ test.describe('VAT documents, keyboard first', () => {
     await page.reload();
     await expect(page.getByLabel('Доставчици (покупки)')).toHaveValue(/.+/);
 
-    // The form: without a verified rate it says so and does not post.
+    // A counterparty for the invoice (fictitious test data).
+    await page.goto('/counterparties');
+    await page.getByLabel('Наименование').fill('Доставчик А');
+    await page.getByLabel('Наименование').press('Enter');
+    await expect(page.getByRole('link', { name: 'Доставчик А' })).toBeVisible();
+
+    // A purchase invoice at the standard rate (ЗДДС чл. 66, ал. 1, from legal_parameter).
     await page.goto('/vat/new');
     await expect(page.getByLabel('Покупка или продажба')).toBeFocused();
-    // Not getByRole('alert') alone: Next.js has its own (empty) route announcer alert.
     await expect(
-      page
-        .getByRole('alert')
-        .filter({ hasText: 'Няма въведени ставки на ДДС от официален източник' }),
-    ).toBeVisible();
-    await expect(page.getByRole('button', { name: /Осчетоводи/ })).toBeDisabled();
+      page.getByRole('alert').filter({ hasText: 'Няма въведени ставки на ДДС' }),
+    ).toHaveCount(0);
+    await page.getByLabel('Контрагент').selectOption({ label: 'Доставчик А' });
+    await page.getByLabel('Номер на документа').fill('0000000123');
     await page.getByLabel('Ред 1, сметка').selectOption({ label: '601 Разходи за материали' });
     await page.getByLabel('Ред 1, данъчна основа').fill('100');
     await page.getByLabel('Ред 1, данъчна основа').press('Tab');
     await expect(page.getByLabel('Ред 1, данъчна основа')).toHaveValue('100,00');
-    await expect(page.getByTestId('vat-net')).toHaveText('100,00');
+    await page.getByLabel('Ред 1, ставка').selectOption({ label: '20 %' });
+    await expect(page.getByLabel('Ред 1, ДДС')).toHaveValue('20,00');
+    await expect(page.getByTestId('vat-gross')).toHaveText('120,00');
+    await page.getByLabel('Ред 1, ДДС').press('Control+Enter');
+    await expect(
+      page.getByText(/Фактура № 0000000123 е осчетоводен\(а\): статия № 1\./),
+    ).toBeVisible();
+
+    await page.goto('/vat');
+    const row = page.getByRole('row', { name: /Фактура № 0000000123/ });
+    await expect(row).toContainText('Доставчик А');
+    await expect(row).toContainText('100,00');
+    await expect(row).toContainText('20,00');
 
     await checkThemes(page, context, {
       'vat-list': '/vat',
